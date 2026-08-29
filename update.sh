@@ -27,6 +27,9 @@ chmod +x /usr/local/bin/render_caddyfile.py /usr/local/bin/pve-proxy-sync.sh
 cp "$REPO_DIR/etc/caddy/Caddyfile.template"       /etc/caddy/Caddyfile.template
 cp "$REPO_DIR/etc/systemd/system/caddy.service"    /etc/systemd/system/caddy.service
 cp "$REPO_DIR/etc/cron.d/pve-proxy-sync"           /etc/cron.d/pve-proxy-sync
+cp "$REPO_DIR/install/pve-proxy-install.sh"        /root/pve-proxy/install/pve-proxy-install.sh
+cp "$REPO_DIR/config.sh"                            /root/pve-proxy/config.sh
+cp "$REPO_DIR/update.sh"                            /root/pve-proxy/update.sh
 msg_ok "Files deployed"
 
 msg_info "Updating Python dependencies"

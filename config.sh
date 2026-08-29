@@ -20,9 +20,10 @@ echo -e "\n${BL}What would you like to configure?${CL}"
 echo "  1) Cloudflare API token"
 echo "  2) PVE API token"
 echo "  3) PVE host address"
-echo "  4) Edit services.yaml"
-echo "  5) Re-sync now"
-echo "  6) Show status"
+echo "  4) Domain / ACME email"
+echo "  5) Edit services.yaml"
+echo "  6) Re-sync now"
+echo "  7) Show status"
 echo "  0) Exit"
 echo ""
 read -r -p "  Choice: " CHOICE
@@ -41,12 +42,11 @@ EOF2
     msg_ok "Caddy restarted"
     ;;
   2)
-    read -r -p "  PVE Token ID [pve-proxy@pam!sync]: " TID
-    TID="${TID:-pve-proxy@pam!sync}"
+    read -r -p "  PVE Token ID: " TID
     read -r -p "  PVE Token Secret: " TSEC
-    [ -z "$TSEC" ] && { echo "Aborted."; exit 1; }
+    [ -z "$TID" ] || [ -z "$TSEC" ] && { echo "Aborted."; exit 1; }
     # Preserve PVE_HOST if it exists
-    PVE_HOST=$(grep -oP 'PVE_HOST=\K.*' /etc/pve-proxy/pve-token.env 2>/dev/null || echo "192.168.10.20")
+    PVE_HOST=$(grep -oP 'PVE_HOST=\K.*' /etc/pve-proxy/pve-token.env 2>/dev/null || true)
     cat > /etc/pve-proxy/pve-token.env <<EOF3
 PVE_TOKEN_ID=${TID}
 PVE_TOKEN_SECRET=${TSEC}
@@ -63,6 +63,24 @@ EOF3
     msg_ok "PVE host updated to ${NEW_HOST}"
     ;;
   4)
+    DOMAIN=$(grep -oP 'DOMAIN=\K.*' /etc/pve-proxy/proxy.env 2>/dev/null || true)
+    EMAIL=$(grep -oP 'EMAIL=\K.*' /etc/pve-proxy/proxy.env 2>/dev/null || true)
+    read -r -p "  Wildcard base domain [${DOMAIN}]: " NEW_DOMAIN
+    read -r -p "  ACME email [${EMAIL}]: " NEW_EMAIL
+    cat > /etc/pve-proxy/proxy.env <<EOF4
+DOMAIN=${NEW_DOMAIN:-$DOMAIN}
+EMAIL=${NEW_EMAIL:-$EMAIL}
+EOF4
+    chown root:caddy /etc/pve-proxy/proxy.env
+    chmod 640 /etc/pve-proxy/proxy.env
+    msg_ok "Domain/email updated"
+    read -r -p "  Run sync now? [Y/n]: " SYNC
+    if [[ "${SYNC,,}" != "n" ]]; then
+      /usr/local/bin/pve-proxy-sync.sh
+      msg_ok "Sync complete"
+    fi
+    ;;
+  5)
     ${EDITOR:-nano} /etc/pve-proxy/services.yaml
     msg_ok "Services file saved"
     read -r -p "  Run sync now? [Y/n]: " SYNC
@@ -71,11 +89,11 @@ EOF3
       msg_ok "Sync complete"
     fi
     ;;
-  5)
+  6)
     /usr/local/bin/pve-proxy-sync.sh
     msg_ok "Sync complete"
     ;;
-  6)
+  7)
     echo ""
     echo -e "${BL}Caddy status:${CL}"
     systemctl status caddy --no-pager -l 2>/dev/null || echo "  Not running"

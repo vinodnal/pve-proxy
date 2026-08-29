@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+
+# Copyright (c) 2026 SalahXG
+# License: MIT
+# https://github.com/vinodnal/pve-proxy
+#
+# build.func - shared host-side library, community-scripts style.
+# Provides messaging, safety checks, container-id discovery and the
+# interactive provisioning helpers used by create-lxc.sh.
+
+set -Eeuo pipefail
+
+# ── Colors ────────────────────────────────────────────────────
+YW="\033[33m"
+GN="\033[1;92m"
+RD="\033[01;31m"
+BL="\033[36m"
+DGN="\033[1;94m"
+CL="\033[m"
+CM="${GN}✓${CL}"
+CROSS="${RD}✗${CL}"
+BFR="\\r\\033[K"
+HOLD=" "
+
+# ── Messaging helpers ─────────────────────────────────────────
+function msg_info() { echo -e "${BFR}${CM} ${YW}$*${CL}"; }
+function msg_ok()   { echo -e "${BFR}${CM} ${GN}$*${CL}"; }
+function msg_warn() { echo -e "${BFR}${YW}⚠ $*${CL}"; }
+function msg_error(){ echo -e "${BFR}${CROSS} ${RD}$*${CL}"; }
+function msg_sub()  { echo -e "${BFR}  ${DGN}» $*${CL}"; }
+
+# ── Safety / no-ops kept for API compatibility ────────────────
+function verb_ip6() { :; }
+function catch_errors() {
+  set -Eeuo pipefail
+  trap 'error_handler "$LINENO" "$BASH_COMMAND"' ERR
+}
+function error_handler() {
+  local line="$1" cmd="$2" code=$?
+  msg_error "Error at line ${line}: ${cmd}"
+  exit "$code"
+}
+
+# ── Pre-flight ────────────────────────────────────────────────
+function pve_check() {
+  if ! command -v pct &>/dev/null; then
+    msg_error "This script must be run on a Proxmox VE host"
+    exit 1
+  fi
+}
+
+function root_check() {
+  if [[ "$(id -u)" -ne 0 ]]; then
+    msg_error "This script must be run as root"
+    exit 1
+  fi
+}
+
+# ── Container ID discovery ────────────────────────────────────
+function next_ctid() {
+  pvesh get /cluster/nextid 2>/dev/null || echo 100
+}
+
+function ctid_in_use() {
+  pct status "$1" &>/dev/null 2>&1
+}
+
+# ── Interactive prompt helpers ────────────────────────────────
+# prompt_with_default <prompt> <default>  → echoes user value
+function prompt_with_default() {
+  local prompt="$1" default="$2" input
+  read -r -p "  ${prompt} [${default}]: " input </dev/tty
+  echo "${input:-$default}"
+}
+
+# prompt_secret <prompt>  → echoes user value (input hidden)
+function prompt_secret() {
+  local prompt="$1" input
+  read -r -s -p "  ${prompt}: " input </dev/tty
+  echo
+  echo "$input"
+}
+
+# ── Container setup steps (run after pct create) ──────────────
+function setting_up_container() {
+  msg_info "Setting up container"
+}
+
+function network_check() {
+  msg_info "Waiting for network in container"
+  local i=0
+  while ! pct exec "$CTID" -- ping -c1 -W2 1.1.1.1 &>/dev/null; do
+    i=$((i + 1))
+    sleep 2
+    if ((i > 30)); then
+      msg_warn "Network check timed out - continuing anyway"
+      return 0
+    fi
+  done
+  msg_ok "Network is reachable"
+}
+
+function update_os() {
+  msg_info "Updating container OS"
+  pct exec "$CTID" -- bash -c "apt-get update -qq && apt-get -yqq upgrade" >/dev/null 2>&1
+  msg_ok "OS updated"
+}

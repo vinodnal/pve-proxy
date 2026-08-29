@@ -1,4 +1,14 @@
-nexterm:   { node: pve2, ip: 192.168.10.41, port: 7681 }
-casaos:    { node: pve1, ip: 192.168.10.20, port: 80 }
-termix:    { node: pve1, ip: 192.168.10.20, port: 3000, auth: basic }
-snowshare: { node: pve2, ip: 192.168.10.41, port: 80 }
+# Port map for services behind the proxy.
+#
+# Each key is the PVE container name (lowercase). Values:
+#   node: PVE node the container runs on (informational)
+#   ip:   LAN IP of the container (from services.yaml, not auto-discovered)
+#   port: service port inside the container
+#   auth: optional "basic" to enable HTTP basic auth (hash in proxy.env)
+#
+# Add one line per service. The PVE API provides names/IPs, but not
+# which port a service listens on — that still has to be set here.
+nexterm:   { node: pve2, ip: 10.0.0.41, port: 7681 }
+casaos:    { node: pve1, ip: 10.0.0.20, port: 80 }
+termix:    { node: pve1, ip: 10.0.0.20, port: 3000, auth: basic }
+snowshare: { node: pve2, ip: 10.0.0.41, port: 80 }

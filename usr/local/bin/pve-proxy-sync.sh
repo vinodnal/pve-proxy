@@ -2,13 +2,13 @@
 set -euo pipefail
 
 source /etc/pve-proxy/pve-token.env
+source /etc/pve-proxy/proxy.env
 
 CADDYFILE=/etc/caddy/Caddyfile
 WORKDIR=/etc/pve-proxy
 STAGED="$WORKDIR/Caddyfile.staged"
 TEMPLATE=/etc/caddy/Caddyfile.template
 SERVICES="$WORKDIR/services.yaml"
-PVE_HOST="${PVE_HOST:-192.168.10.20}"
 
 cd "$WORKDIR"
 
@@ -26,6 +26,8 @@ curl -sk \
   --live live-containers.json \
   --services "$SERVICES" \
   --template "$TEMPLATE" \
+  --domain "$DOMAIN" \
+  --email "$EMAIL" \
   --out "$STAGED"
 
 # Validate before touching live config

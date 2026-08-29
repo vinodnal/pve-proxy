@@ -1,9 +1,9 @@
 {
     admin localhost:2019
-    email you@salahxg.com
+    email {{ email }}
 }
 
-*.pve.lab.hmh2.salahxg.com {
+*.{{ domain }} {
     tls {
         dns cloudflare {env.CLOUDFLARE_API_TOKEN}
     }
@@ -13,7 +13,7 @@
 
     # ---- BEGIN GENERATED BLOCKS (managed by pve-proxy-sync, do not hand-edit) ----
 {% for svc in services %}
-    @{{ svc.name }} host {{ svc.name }}.pve.lab.hmh2.salahxg.com
+    @{{ svc.name }} host {{ svc.name }}.{{ domain }}
     handle @{{ svc.name }} {
 {% if svc.auth == "basic" %}
         basicauth {

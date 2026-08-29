@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# One-liner installer: bash -c "$(curl -fsSL https://raw.githubusercontent.com/vinodnal/pve-proxy/main/create-lxc.sh)"
+# One-liner installer:
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/vinodnal/pve-proxy/master/install.sh)"
 # This is a thin wrapper that downloads and runs create-lxc.sh on a PVE host.
 set -euo pipefail
 

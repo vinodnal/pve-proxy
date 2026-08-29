@@ -7,22 +7,23 @@ Caddy reverse proxy for Proxmox VE containers, accessible over Tailscale with wi
 On a Proxmox VE node:
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/vinodnal/pve-proxy/main/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/vinodnal/pve-proxy/master/install.sh)"
 ```
 
-The installer will interactively ask for:
-- Container ID (auto-detects next available), hostname, resources
-- Cloudflare API token (Zone:DNS:Edit scope)
-- PVE API token ID and secret
-- PVE host address
+The installer asks interactively for everything environment-specific:
 
-Everything is set up automatically — secrets are written directly into the container and never logged.
+- Container ID (auto-detects the next free one), hostname, resources
+- Wildcard base domain (e.g. `pve.example.com`) and ACME contact email
+- Cloudflare API token (`Zone:DNS:Edit` scope)
+- PVE API token ID + secret, and PVE host address
+
+Secrets are written directly into the container and never logged.
 
 ## Architecture
 
 ```
 Cloudflare (DNS-only, grey cloud)
-  *.pve.lab.hmh2.salahxg.com → 100.x.x.x (Tailscale IP)
+  *.<domain> → 100.x.x.x (Tailscale IP)
         │
         ▼
   ┌─────────────┐
@@ -32,17 +33,39 @@ Cloudflare (DNS-only, grey cloud)
          │ reverse_proxy
     ┌────┴─────────────────────┐
     │    LAN backends          │
-    │  192.168.10.x:port       │
+    │  <container-ip>:port     │
     └──────────────────────────┘
 ```
 
-- **One wildcard cert** (`*.pve.lab.hmh2.salahxg.com`) via DNS-01 — no per-container certs, no CT log leaks
+- **One wildcard cert** (`*.<domain>`) via DNS-01 — no per-container certs, no CT log leaks
 - **Tailscale ACL** restricts who can reach the proxy; Caddy's `remote_ip` matcher blocks non-tailnet traffic
 - **Auto-sync cron** pulls running containers from the PVE API every 15 minutes and regenerates the Caddyfile
 
+## Project Structure (community-scripts style)
+
+```
+pve-proxy/
+├── install.sh                           # One-liner entry point (curl|bash on PVE node)
+├── create-lxc.sh                        # Host-side: creates + configures the CT
+├── build.func                           # Shared host-side library (msg, checks, prompts)
+├── install/
+│   └── pve-proxy-install.sh             # Container-side installer
+├── setup.sh                             # Wrapper around install/pve-proxy-install.sh
+├── update.sh                            # Pull latest + redeploy (inside CT)
+├── config.sh                            # Interactive reconfiguration menu (inside CT)
+├── etc/
+│   ├── caddy/Caddyfile.template         # Jinja2 template (domain/email injected)
+│   ├── cron.d/pve-proxy-sync            # 15-minute sync cron job
+│   ├── pve-proxy/services.yaml          # Manual port map (name → ip:port)
+│   └── systemd/system/caddy.service     # Hardened systemd unit
+└── usr/local/bin/
+    ├── pve-proxy-sync.sh                # Discovery: PVE API → render → validate → reload
+    └── render_caddyfile.py              # Merges live data + services.yaml + domain
+```
+
 ## Prerequisites
 
-Before running the installer, create the PVE API token on any PVE node:
+Create the PVE API token on any PVE node (name it whatever you like):
 
 ```bash
 pveum user add pve-proxy@pam
@@ -50,7 +73,7 @@ pveum aclmod / -user pve-proxy@pam -role PVEAuditor
 pveum user token add pve-proxy@pam sync --privsep 0
 ```
 
-Save the token ID (`pve-proxy@pam!sync`) and secret — the installer will ask for them.
+Save the token ID (`pve-proxy@pam!sync`) and secret — the installer asks for them.
 
 You also need a Cloudflare API token with `Zone:DNS:Edit` scope on your zone.
 
@@ -76,19 +99,19 @@ Then create a Cloudflare DNS record:
 
 | Type | Name | Content | Proxy |
 |------|------|---------|-------|
-| A | `*.pve.lab.hmh2.salahxg.com` | `100.x.x.x` (Tailscale IP) | DNS only |
+| A | `*.<domain>` | `100.x.x.x` (Tailscale IP) | DNS only |
 
 ## Adding a Service
 
 Edit `/etc/pve-proxy/services.yaml`:
 
 ```yaml
-myapp: { node: pve1, ip: 192.168.10.30, port: 8080 }
+myapp: { node: pve1, ip: 10.0.0.30, port: 8080 }
 ```
 
-Wait for the next cron cycle (15 min) or run `config.sh` → option 5.
+Wait for the next cron cycle (15 min) or run `config.sh` → re-sync.
 
-The service will be available at `https://myapp.pve.lab.hmh2.salahxg.com`.
+The service will be available at `https://myapp.<domain>`.
 
 > **Note:** The port map is manual. The PVE API provides container names/IPs but not which port a service listens on.
 
@@ -100,7 +123,7 @@ Inside the container:
 bash /root/pve-proxy/update.sh
 ```
 
-Pulls latest code from the repo, redeploys all scripts, updates Python deps, and reloads Caddy.
+Pulls latest code, redeploys all scripts, updates Python deps, and reloads Caddy.
 
 ## Configure
 
@@ -110,32 +133,7 @@ Inside the container:
 bash /root/pve-proxy/config.sh
 ```
 
-Interactive menu to:
-1. Update Cloudflare API token
-2. Update PVE API token
-3. Change PVE host address
-4. Edit services.yaml
-5. Trigger a sync
-6. Show status (Caddy, Tailscale, last sync, active services)
-
-## Project Structure
-
-```
-pve-proxy/
-├── install.sh                           # One-liner entry point (curl|bash on PVE node)
-├── create-lxc.sh                        # Interactive CT creation + provisioning
-├── setup.sh                             # Runs inside CT — installs all dependencies
-├── update.sh                            # Pull latest + redeploy
-├── config.sh                            # Interactive reconfiguration menu
-├── etc/
-│   ├── caddy/Caddyfile.template         # Jinja2 template for the generated Caddyfile
-│   ├── cron.d/pve-proxy-sync            # 15-minute sync cron job
-│   ├── pve-proxy/services.yaml          # Manual port map (name → ip:port)
-│   └── systemd/system/caddy.service     # Hardened systemd unit
-└── usr/local/bin/
-    ├── pve-proxy-sync.sh                # Discovery: PVE API → render → validate → reload
-    └── render_caddyfile.py              # Merges live container data with services.yaml
-```
+Interactive menu to update tokens, PVE host, domain/email, edit services, trigger a sync, or show status.
 
 ## Tailscale ACL (Recommended)
 
@@ -153,12 +151,12 @@ pve-proxy/
 ## Verification
 
 ```bash
-dig nexterm.pve.lab.hmh2.salahxg.com +short
-curl -v https://nexterm.pve.lab.hmh2.salahxg.com/
+dig myapp.<domain> +short
+curl -v https://myapp.<domain>/
 
 # Confirm wildcard cert (not per-name)
-echo | openssl s_client -connect nexterm.pve.lab.hmh2.salahxg.com:443 \
-  -servername nexterm.pve.lab.hmh2.salahxg.com 2>/dev/null \
+echo | openssl s_client -connect myapp.<domain>:443 \
+  -servername myapp.<domain> 2>/dev/null \
   | openssl x509 -noout -ext subjectAltName
 ```
 
