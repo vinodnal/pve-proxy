@@ -1,0 +1,31 @@
+{
+    admin localhost:2019
+    email you@salahxg.com
+}
+
+*.pve.lab.hmh2.salahxg.com {
+    tls {
+        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+    }
+
+    @not-private not remote_ip private_ranges 100.64.0.0/10
+    respond @not-private 403
+
+    # ---- BEGIN GENERATED BLOCKS (managed by pve-proxy-sync, do not hand-edit) ----
+{% for svc in services %}
+    @{{ svc.name }} host {{ svc.name }}.pve.lab.hmh2.salahxg.com
+    handle @{{ svc.name }} {
+{% if svc.auth == "basic" %}
+        basicauth {
+            {$BASIC_AUTH_HASH}
+        }
+{% endif %}
+        reverse_proxy {{ svc.ip }}:{{ svc.port }}
+    }
+{% endfor %}
+    # ---- END GENERATED BLOCKS ----
+
+    handle {
+        respond "not found" 404
+    }
+}

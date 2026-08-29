@@ -1,0 +1,4 @@
+nexterm:   { node: pve2, ip: 192.168.10.41, port: 7681 }
+casaos:    { node: pve1, ip: 192.168.10.20, port: 80 }
+termix:    { node: pve1, ip: 192.168.10.20, port: 3000, auth: basic }
+snowshare: { node: pve2, ip: 192.168.10.41, port: 80 }

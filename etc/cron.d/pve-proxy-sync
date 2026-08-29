@@ -1,0 +1,1 @@
+*/15 * * * * root /usr/local/bin/pve-proxy-sync.sh >> /var/log/pve-proxy-sync.log 2>&1
