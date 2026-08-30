@@ -79,6 +79,11 @@ fi
 
 PVE_HOST=$(prompt_with_default "PVE API host (IP or hostname)" "")
 
+# Optional: bcrypt hash for services marked `auth: basic` in services.yaml.
+# Generate with `caddy hash-password` (or after install: config.sh -> 8).
+read -r -s -p "  Basic auth hash (optional, Enter to skip; see docs): " BASIC_AUTH_HASH </dev/tty || true
+echo
+
 # ── Summary & confirmation ───────────────────────────────────
 echo ""
 echo -e "${BL}Summary${CL}"
@@ -91,6 +96,7 @@ echo -e "  Domain:    ${GN}*.${DOMAIN}${CL}"
 echo -e "  Email:     ${GN}${EMAIL}${CL}"
 echo -e "  PVE Token: ${GN}${PVE_TOKEN_ID}${CL}"
 echo -e "  PVE Host:  ${GN}${PVE_HOST:-<unset>}${CL}"
+echo -e "  Basic Auth:${GN}$([ -n "$BASIC_AUTH_HASH" ] && echo " configured" || echo " not set")${CL}"
 echo ""
 read -r -p "  Proceed? [Y/n]: " CONFIRM </dev/tty
 if [[ "${CONFIRM,,}" == "n" ]]; then
@@ -139,25 +145,37 @@ while IFS= read -r -d '' f; do
   DIR=$(dirname "/root/pve-proxy/$REL")
   pct exec "$CTID" -- mkdir -p "$DIR"
   pct push "$CTID" "$f" "/root/pve-proxy/$REL"
-done < <(find "$SCRIPT_DIR" -type f -not -path "*/.git/*" ! -name "create-lxc.sh" -print0)
+done < <(find "$SCRIPT_DIR" -type f -not -path "*/.git/*" -not -path "*/.omo/*" -not -path "*/.codegraph/*" ! -name "create-lxc.sh" -print0)
 msg_ok "Files pushed"
 
-# ── Write configuration into the container ────────────────────
+# ── Write configuration into the container (injection-safe) ───
+# Values are written with printf to a temp file and pushed with pct push so no
+# secret can ever be interpreted as shell/heredoc syntax inside the container.
 msg_info "Writing configuration"
 pct exec "$CTID" -- mkdir -p /etc/pve-proxy
-pct exec "$CTID" -- bash -c "cat > /etc/pve-proxy/cloudflare.env <<INNEREOF
-CLOUDFLARE_API_TOKEN=${CF_TOKEN}
-INNEREOF"
-pct exec "$CTID" -- bash -c "cat > /etc/pve-proxy/pve-token.env <<INNEREOF
-PVE_TOKEN_ID=${PVE_TOKEN_ID}
-PVE_TOKEN_SECRET=${PVE_TOKEN_SECRET}
-PVE_HOST=${PVE_HOST}
-INNEREOF"
-pct exec "$CTID" -- bash -c "cat > /etc/pve-proxy/proxy.env <<INNEREOF
-DOMAIN=${DOMAIN}
-EMAIL=${EMAIL}
-INNEREOF"
+TMPCF=$(mktemp)
+trap 'rm -f "$TMPCF"' EXIT
+
+printf 'CLOUDFLARE_API_TOKEN=%s\n' "$CF_TOKEN" > "$TMPCF"
+pct push "$CTID" "$TMPCF" /etc/pve-proxy/cloudflare.env
+
+printf 'PVE_TOKEN_ID=%s\nPVE_TOKEN_SECRET=%s\nPVE_HOST=%s\n' \
+  "$PVE_TOKEN_ID" "$PVE_TOKEN_SECRET" "$PVE_HOST" > "$TMPCF"
+pct push "$CTID" "$TMPCF" /etc/pve-proxy/pve-token.env
+
+printf 'DOMAIN=%s\nEMAIL=%s\nBASIC_AUTH_HASH=%s\n' \
+  "$DOMAIN" "$EMAIL" "$BASIC_AUTH_HASH" > "$TMPCF"
+pct push "$CTID" "$TMPCF" /etc/pve-proxy/proxy.env
 msg_ok "Configuration written"
+
+# ── Push PVE cluster CA so sync verifies API TLS (no -k) ──────
+msg_info "Pushing PVE cluster CA"
+if [ -f /etc/pve/local/pve-ssl-ca.pem ]; then
+  pct push "$CTID" /etc/pve/local/pve-ssl-ca.pem /etc/pve-proxy/pve-ssl-ca.pem
+  msg_ok "PVE CA pushed"
+else
+  msg_warn "PVE CA not found on host; sync will fall back to insecure TLS (-k)"
+fi
 
 # ── Run installer inside the container ────────────────────────
 msg_info "Running installer inside CT $CTID (this takes a few minutes)"
@@ -165,8 +183,12 @@ pct exec "$CTID" -- bash /root/pve-proxy/install/pve-proxy-install.sh /root/pve-
 msg_ok "Installer complete"
 
 # ── Lock down secrets ─────────────────────────────────────────
+# Least privilege: only caddy needs cloudflare.env (DNS-01 at runtime) and
+# proxy.env (basic-auth hash is baked into the Caddyfile at render time).
+# pve-token.env is used only by the root cron sync, so it is root-only.
 msg_info "Setting secret file permissions"
-pct exec "$CTID" -- bash -c "chown root:caddy /etc/pve-proxy/*.env && chmod 640 /etc/pve-proxy/*.env"
+pct exec "$CTID" -- bash -c "chown root:root /etc/pve-proxy/pve-token.env && chmod 600 /etc/pve-proxy/pve-token.env"
+pct exec "$CTID" -- bash -c "chown root:caddy /etc/pve-proxy/cloudflare.env /etc/pve-proxy/proxy.env && chmod 640 /etc/pve-proxy/cloudflare.env /etc/pve-proxy/proxy.env"
 msg_ok "Permissions set"
 
 echo ""

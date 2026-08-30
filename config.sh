@@ -16,6 +16,19 @@ cat <<"EOF"
   Configuration                             /____/
 EOF
 
+# Write an env file atomically without ever interpreting its values as shell.
+# Values (which may contain '$' for bcrypt hashes) are written with printf %s.
+write_env() { # write_env <file> <owner:group> <mode> <lines...>
+  local file="$1" owner="$2" mode="$3"; shift 3
+  local tmp
+  tmp=$(mktemp)
+  printf '%s\n' "$@" > "$tmp"
+  chown "$owner" "$tmp"
+  chmod "$mode" "$tmp"
+  mv -f "$tmp" "$file"
+  rm -f "$tmp"
+}
+
 echo -e "\n${BL}What would you like to configure?${CL}"
 echo "  1) Cloudflare API token"
 echo "  2) PVE API token"
@@ -24,55 +37,49 @@ echo "  4) Domain / ACME email"
 echo "  5) Edit services.yaml"
 echo "  6) Re-sync now"
 echo "  7) Show status"
+echo "  8) Basic auth hash (for services with auth: basic)"
 echo "  0) Exit"
 echo ""
 read -r -p "  Choice: " CHOICE
 
 case "$CHOICE" in
   1)
-    read -r -p "  New Cloudflare API Token: " CF_TOKEN
+    read -r -s -p "  New Cloudflare API Token: " CF_TOKEN || true
+    echo
     [ -z "$CF_TOKEN" ] && { echo "Aborted."; exit 1; }
-    cat > /etc/pve-proxy/cloudflare.env <<EOF2
-CLOUDFLARE_API_TOKEN=${CF_TOKEN}
-EOF2
-    chown root:caddy /etc/pve-proxy/cloudflare.env
-    chmod 640 /etc/pve-proxy/cloudflare.env
+    write_env /etc/pve-proxy/cloudflare.env root:caddy 640 "CLOUDFLARE_API_TOKEN=${CF_TOKEN}"
     msg_ok "Cloudflare token updated"
     systemctl restart caddy
     msg_ok "Caddy restarted"
     ;;
   2)
     read -r -p "  PVE Token ID: " TID
-    read -r -p "  PVE Token Secret: " TSEC
+    read -r -s -p "  PVE Token Secret: " TSEC || true
+    echo
     [ -z "$TID" ] || [ -z "$TSEC" ] && { echo "Aborted."; exit 1; }
     # Preserve PVE_HOST if it exists
     PVE_HOST=$(grep -oP 'PVE_HOST=\K.*' /etc/pve-proxy/pve-token.env 2>/dev/null || true)
-    cat > /etc/pve-proxy/pve-token.env <<EOF3
-PVE_TOKEN_ID=${TID}
-PVE_TOKEN_SECRET=${TSEC}
-PVE_HOST=${PVE_HOST}
-EOF3
-    chown root:caddy /etc/pve-proxy/pve-token.env
-    chmod 640 /etc/pve-proxy/pve-token.env
+    write_env /etc/pve-proxy/pve-token.env root:root 600 \
+      "PVE_TOKEN_ID=${TID}" "PVE_TOKEN_SECRET=${TSEC}" "PVE_HOST=${PVE_HOST}"
     msg_ok "PVE token updated"
     ;;
   3)
     read -r -p "  PVE host IP/hostname: " NEW_HOST
     [ -z "$NEW_HOST" ] && { echo "Aborted."; exit 1; }
-    sed -i "s|^PVE_HOST=.*|PVE_HOST=${NEW_HOST}|" /etc/pve-proxy/pve-token.env
+    TID=$(grep -oP 'PVE_TOKEN_ID=\K.*' /etc/pve-proxy/pve-token.env 2>/dev/null || true)
+    TSEC=$(grep -oP 'PVE_TOKEN_SECRET=\K.*' /etc/pve-proxy/pve-token.env 2>/dev/null || true)
+    write_env /etc/pve-proxy/pve-token.env root:root 600 \
+      "PVE_TOKEN_ID=${TID}" "PVE_TOKEN_SECRET=${TSEC}" "PVE_HOST=${NEW_HOST}"
     msg_ok "PVE host updated to ${NEW_HOST}"
     ;;
   4)
     DOMAIN=$(grep -oP 'DOMAIN=\K.*' /etc/pve-proxy/proxy.env 2>/dev/null || true)
     EMAIL=$(grep -oP 'EMAIL=\K.*' /etc/pve-proxy/proxy.env 2>/dev/null || true)
+    BAH=$(grep -oP 'BASIC_AUTH_HASH=\K.*' /etc/pve-proxy/proxy.env 2>/dev/null || true)
     read -r -p "  Wildcard base domain [${DOMAIN}]: " NEW_DOMAIN
     read -r -p "  ACME email [${EMAIL}]: " NEW_EMAIL
-    cat > /etc/pve-proxy/proxy.env <<EOF4
-DOMAIN=${NEW_DOMAIN:-$DOMAIN}
-EMAIL=${NEW_EMAIL:-$EMAIL}
-EOF4
-    chown root:caddy /etc/pve-proxy/proxy.env
-    chmod 640 /etc/pve-proxy/proxy.env
+    write_env /etc/pve-proxy/proxy.env root:caddy 640 \
+      "DOMAIN=${NEW_DOMAIN:-$DOMAIN}" "EMAIL=${NEW_EMAIL:-$EMAIL}" "BASIC_AUTH_HASH=${BAH}"
     msg_ok "Domain/email updated"
     read -r -p "  Run sync now? [Y/n]: " SYNC
     if [[ "${SYNC,,}" != "n" ]]; then
@@ -106,6 +113,28 @@ EOF4
     echo ""
     echo -e "${BL}Active services:${CL}"
     cat /etc/pve-proxy/services.yaml 2>/dev/null || echo "  No services configured"
+    echo ""
+    echo -e "${BL}Basic auth:${CL}"
+    if grep -q '^BASIC_AUTH_HASH=.' /etc/pve-proxy/proxy.env 2>/dev/null; then
+      echo "  configured"
+    else
+      echo "  not set (services with auth: basic will render WITHOUT auth)"
+    fi
+    ;;
+  8)
+    echo -e "${YW}Generate a hash with: caddy hash-password${CL}"
+    read -r -s -p "  New basic auth hash (Enter to clear): " NEW_HASH || true
+    echo
+    DOMAIN=$(grep -oP 'DOMAIN=\K.*' /etc/pve-proxy/proxy.env 2>/dev/null || true)
+    EMAIL=$(grep -oP 'EMAIL=\K.*' /etc/pve-proxy/proxy.env 2>/dev/null || true)
+    write_env /etc/pve-proxy/proxy.env root:caddy 640 \
+      "DOMAIN=${DOMAIN}" "EMAIL=${EMAIL}" "BASIC_AUTH_HASH=${NEW_HASH}"
+    msg_ok "Basic auth hash updated"
+    read -r -p "  Run sync now? [Y/n]: " SYNC
+    if [[ "${SYNC,,}" != "n" ]]; then
+      /usr/local/bin/pve-proxy-sync.sh
+      msg_ok "Sync complete"
+    fi
     ;;
   0)
     echo "Bye."

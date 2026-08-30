@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Pre-commit hook for pve-proxy.
+# Runs the repo validation (scripts/check.sh) and refuses staged secret/env files.
+# Enabled via core.hooksPath=hooks (see hooks/install.sh).
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+fail=0
+
+echo "==> Running scripts/check.sh"
+scripts/check.sh || fail=1
+
+echo "==> Staged secret/env guard"
+while IFS= read -r -d '' f; do
+  case "$f" in
+    *.env)
+      echo "ERROR: refusing to commit env file: $f"
+      fail=1
+      ;;
+    *__pycache__*)
+      echo "ERROR: refusing to commit __pycache__ artifact: $f"
+      fail=1
+      ;;
+  esac
+done < <(git diff --cached --name-only -z)
+
+if [ "$fail" -ne 0 ]; then
+  echo
+  echo "Pre-commit checks FAILED. Fix the issues above and re-commit."
+  echo "Use a conventional commit message: type(scope): description"
+  exit 1
+fi
+echo "==> Pre-commit checks passed"
+exit 0

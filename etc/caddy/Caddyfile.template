@@ -1,6 +1,18 @@
 {
     admin localhost:2019
     email {{ email }}
+
+    # Access log for audit / troubleshooting (rotated, JSON).
+    # Writes to /var/log/caddy/access.log as the caddy user.
+    log {
+        output file /var/log/caddy/access.log {
+            roll_size 100MiB
+            roll_keep 5
+            roll_keep_for 720h
+        }
+        format json
+        level INFO
+    }
 }
 
 *.{{ domain }} {
@@ -8,8 +20,11 @@
         dns cloudflare {env.CLOUDFLARE_API_TOKEN}
     }
 
-    @not-private not remote_ip private_ranges 100.64.0.0/10
-    respond @not-private 403
+    # Restrict to Tailscale's CGNAT range only. RFC1918 LAN traffic is NOT
+    # treated as trusted here: everything not originating from 100.64.0.0/10
+    # is rejected at the Caddy layer (defense in depth behind the tailnet ACL).
+    @not-tailnet not remote_ip 100.64.0.0/10
+    respond @not-tailnet 403
 
     # ---- BEGIN GENERATED BLOCKS (managed by pve-proxy-sync, do not hand-edit) ----
 {% for svc in services %}
@@ -17,7 +32,7 @@
     handle @{{ svc.name }} {
 {% if svc.auth == "basic" %}
         basicauth {
-            {$BASIC_AUTH_HASH}
+            admin {{ svc.basic_auth_hash }}
         }
 {% endif %}
         reverse_proxy {{ svc.ip }}:{{ svc.port }}

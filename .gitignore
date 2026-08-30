@@ -1,3 +1,14 @@
+# Secrets / transient state (never commit)
 *.env
 *.staged
 live-containers.json
+
+# Python / tooling
+__pycache__/
+*.pyc
+.venv/
+.uv/
+
+# IDE / agent artifacts
+.omo/
+.codegraph/

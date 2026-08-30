@@ -4,7 +4,11 @@
 #   node: PVE node the container runs on (informational)
 #   ip:   LAN IP of the container (from services.yaml, not auto-discovered)
 #   port: service port inside the container
-#   auth: optional "basic" to enable HTTP basic auth (hash in proxy.env)
+#   auth: optional "basic" to enable HTTP basic auth (username: admin).
+#         The bcrypt hash comes from BASIC_AUTH_HASH in /etc/pve-proxy/proxy.env
+#         (set via install or `config.sh` -> 8). If `auth: basic` is set but no
+#         hash is configured, the service is rendered WITHOUT auth and a warning
+#         is logged, so a missing hash can never break a sync.
 #
 # Add one line per service. The PVE API provides names/IPs, but not
 # which port a service listens on — that still has to be set here.

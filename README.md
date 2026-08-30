@@ -17,7 +17,9 @@ The installer asks interactively for everything environment-specific:
 - Cloudflare API token (`Zone:DNS:Edit` scope)
 - PVE API token ID + secret, and PVE host address
 
-Secrets are written directly into the container and never logged.
+Secrets are written directly into the container and never logged. The PVE cluster
+CA is pushed into the container so the sync verifies the PVE API TLS certificate
+(no `-k`).
 
 ## Architecture
 
@@ -38,8 +40,8 @@ Cloudflare (DNS-only, grey cloud)
 ```
 
 - **One wildcard cert** (`*.<domain>`) via DNS-01 — no per-container certs, no CT log leaks
-- **Tailscale ACL** restricts who can reach the proxy; Caddy's `remote_ip` matcher blocks non-tailnet traffic
-- **Auto-sync cron** pulls running containers from the PVE API every 15 minutes and regenerates the Caddyfile
+- **Tailscale ACL** restricts who can reach the proxy; Caddy's `remote_ip` matcher allows **only** Tailscale CGNAT (`100.64.0.0/10`) traffic — LAN traffic is rejected too
+- **Auto-sync cron** pulls running containers from the PVE API every 15 minutes (verifying TLS against the PVE cluster CA) and regenerates the Caddyfile
 
 ## Project Structure (community-scripts style)
 
@@ -57,7 +59,17 @@ pve-proxy/
 │   ├── caddy/Caddyfile.template         # Jinja2 template (domain/email injected)
 │   ├── cron.d/pve-proxy-sync            # 15-minute sync cron job
 │   ├── pve-proxy/services.yaml          # Manual port map (name → ip:port)
+│   ├── pve-proxy/.gitignore             # Keeps secrets out of the sync git repo
 │   └── systemd/system/caddy.service     # Hardened systemd unit
+├── hooks/
+│   ├── pre-commit                       # Git hook: scripts/check.sh + staged secret guard
+│   └── install.sh                       # Enables hooks (core.hooksPath=hooks)
+├── scripts/
+│   └── check.sh                         # Local validation (bash -n, py compile, secret scan)
+├── requirements.txt                    # Pinned Python deps (jinja2, pyyaml)
+├── pyproject.toml                      # Renderer project metadata
+├── SECURITY.md                         # Threat model & token scopes
+├── CHANGELOG.md                        # Release notes
 └── usr/local/bin/
     ├── pve-proxy-sync.sh                # Discovery: PVE API → render → validate → reload
     └── render_caddyfile.py              # Merges live data + services.yaml + domain
@@ -101,6 +113,16 @@ Then create a Cloudflare DNS record:
 |------|------|---------|-------|
 | A | `*.<domain>` | `100.x.x.x` (Tailscale IP) | DNS only |
 
+Optional (sensitive services only): set a basic-auth hash so `auth: basic` entries
+in `services.yaml` actually get protected:
+
+```bash
+# generate a bcrypt hash
+caddy hash-password
+# then store it
+config.sh   # -> 8) Basic auth hash
+```
+
 ## Adding a Service
 
 Edit `/etc/pve-proxy/services.yaml`:
@@ -113,6 +135,11 @@ Wait for the next cron cycle (15 min) or run `config.sh` → re-sync.
 
 The service will be available at `https://myapp.<domain>`.
 
+If the service should require login, set `auth: basic` on its line and make sure a
+`BASIC_AUTH_HASH` is configured (`config.sh` → 8). Services marked `auth: basic`
+without a hash are rendered **without** auth and log a warning, so a missing hash
+can never break a sync.
+
 > **Note:** The port map is manual. The PVE API provides container names/IPs but not which port a service listens on.
 
 ## Update
@@ -123,7 +150,13 @@ Inside the container:
 bash /root/pve-proxy/update.sh
 ```
 
-Pulls latest code, redeploys all scripts, updates Python deps, and reloads Caddy.
+Pulls latest code, redeploys all scripts (including the secrets `.gitignore`),
+updates Python deps, and reloads Caddy.
+
+> Upgrading an install that was created before the `.gitignore` shipped: the sync
+> script will refuse to run until secret files are removed from the `/etc/pve-proxy`
+> git history. See the remediation hint printed by `pve-proxy-sync.sh`, or re-run the
+> installer for a clean container.
 
 ## Configure
 
@@ -160,14 +193,44 @@ echo | openssl s_client -connect myapp.<domain>:443 \
   | openssl x509 -noout -ext subjectAltName
 ```
 
+## Development
+
+```bash
+# Enable git hooks (runs bash -n + Python compile + secret scan on every commit)
+bash hooks/install.sh
+
+# Run the same checks manually
+bash scripts/check.sh
+
+# Render a Caddyfile locally (needs uv)
+uv run --no-project --with pyyaml --with jinja2 python usr/local/bin/render_caddyfile.py \
+  --live live.json --services etc/pve-proxy/services.yaml \
+  --template etc/caddy/Caddyfile.template --domain pve.example.com --email you@example.com \
+  --basic-auth-hash '$2y$10$...' --out /tmp/Caddyfile
+```
+
+Commits use [conventional commits](https://www.conventionalcommits.org/), e.g.
+`fix(security): ...`, `feat(sync): ...`. Never use `--no-verify`.
+
 ## Security
 
-- Secrets created directly on the host, never passed through automation logs
-- Caddy admin API bound to `localhost:2019` only
-- Unprivileged container with nesting (required for Tailscale)
-- `remote_ip` matcher rejects non-Tailscale traffic at the Caddy layer
-- Sensitive services get `basicauth` — generate hash with `caddy hash-password`
-- Secret files: `640 root:caddy`; upgradeable to systemd `LoadCredential=` later
+- Secrets are written into the container with `printf` (never shell-interpolated) and
+  are **excluded from the `/etc/pve-proxy` git repo** via a shipped `.gitignore`. The
+  sync script refuses to run if a secret `*.env` file is ever tracked in git history.
+- PVE API calls verify TLS against the PVE cluster CA (pushed at install); no `-k`.
+- Caddy admin API bound to `localhost:2019` only.
+- Unprivileged container with nesting (required for Tailscale).
+- `remote_ip` matcher allows **only Tailscale CGNAT (`100.64.0.0/10`)** — RFC1918 LAN
+  traffic is rejected at the Caddy layer (defense in depth behind the Tailscale ACL).
+- Sensitive services get working `basicauth` (username `admin`) — set the bcrypt hash
+  at install or via `config.sh` → 8 (`caddy hash-password`).
+- Least-privilege file permissions: `pve-token.env` is `600 root:root`;
+  `cloudflare.env` and `proxy.env` are `640 root:caddy`. Upgradeable to systemd
+  `LoadCredential=` later.
+- Access logging to `/var/log/caddy/access.log` (rotated, JSON) for audit.
+- Certificate expiry is monitored and warns via journald when < 14 days remain.
+- Pinned toolchain: Caddy v2.10.2, xcaddy v0.4.7, cloudflare DNS v0.2.4, uv 0.12.7.
+  Pin the whole install to a release tag with `PVE_PROXY_REF=v1.x.y` (default `master`).
 
 ## License
 

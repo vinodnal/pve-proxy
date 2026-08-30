@@ -16,7 +16,7 @@ fi
 
 msg_info "Pulling latest changes"
 cd "$REPO_DIR"
-git pull --ff-only
+git pull --ff-only origin master
 msg_ok "Repository updated"
 
 msg_info "Deploying updated files"
@@ -25,6 +25,8 @@ cp "$REPO_DIR/usr/local/bin/pve-proxy-sync.sh"   /usr/local/bin/pve-proxy-sync.s
 chmod +x /usr/local/bin/render_caddyfile.py /usr/local/bin/pve-proxy-sync.sh
 
 cp "$REPO_DIR/etc/caddy/Caddyfile.template"       /etc/caddy/Caddyfile.template
+cp "$REPO_DIR/etc/pve-proxy/services.yaml"         /etc/pve-proxy/services.yaml
+cp "$REPO_DIR/etc/pve-proxy/.gitignore"            /etc/pve-proxy/.gitignore
 cp "$REPO_DIR/etc/systemd/system/caddy.service"    /etc/systemd/system/caddy.service
 cp "$REPO_DIR/etc/cron.d/pve-proxy-sync"           /etc/cron.d/pve-proxy-sync
 cp "$REPO_DIR/install/pve-proxy-install.sh"        /root/pve-proxy/install/pve-proxy-install.sh
@@ -34,7 +36,7 @@ msg_ok "Files deployed"
 
 msg_info "Updating Python dependencies"
 export PATH="$HOME/.local/bin:$PATH"
-uv pip install --python /opt/pve-proxy/.venv/bin/python --upgrade jinja2 pyyaml >/dev/null 2>&1
+uv pip install --python /opt/pve-proxy/.venv/bin/python --upgrade -r "$REPO_DIR/requirements.txt" >/dev/null 2>&1
 msg_ok "Python dependencies updated"
 
 msg_info "Reloading services"

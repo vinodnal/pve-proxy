@@ -1,0 +1,10 @@
+# Never commit secrets or transient state to the /etc/pve-proxy git repo.
+# This file is copied into /etc/pve-proxy/.gitignore during install and is
+# checked by pve-proxy-sync.sh before every snapshot.
+*.env
+*.staged
+*.previous
+live-containers.json
+certs.json
+pve-ssl-ca.pem
+*.log

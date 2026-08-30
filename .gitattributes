@@ -1,0 +1,8 @@
+# Normalize all text files to LF.
+# CRITICAL: the *.sh scripts run inside the LXC, and CRLF line endings break
+# them, so the whole repo is stored as LF regardless of the checkout platform.
+* text=auto eol=lf
+
+# Explicit binary types (add as needed):
+# *.png binary
+# *.jpg binary

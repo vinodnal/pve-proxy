@@ -1,0 +1,9 @@
+[project]
+name = "pve-proxy-render"
+version = "1.0.0"
+description = "Caddyfile renderer for the pve-proxy LXC (merges PVE container data + services.yaml)"
+requires-python = ">=3.10"
+dependencies = [
+    "jinja2==3.1.6",
+    "pyyaml==6.0.3",
+]

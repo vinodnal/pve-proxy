@@ -1,0 +1,4 @@
+# Python dependencies for the pve-proxy renderer (pinned).
+# Installed into /opt/pve-proxy/.venv by the installer / update.sh.
+jinja2==3.1.6
+pyyaml==6.0.3
