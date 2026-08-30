@@ -26,8 +26,10 @@ else
 fi
 
 echo "==> Secret scan (working tree)"
-# Flags accidental credential values (16+ chars, no placeholder chars $ % < space).
-if grep -rInE '(CLOUDFLARE_API_TOKEN|PVE_TOKEN_ID|PVE_TOKEN_SECRET|BASIC_AUTH_HASH)=[^$%< ]{16,}' \
+# Flags accidental credential VALUES (not placeholders like %s/$VAR/<...>):
+#   - Cloudflare token / PVE token secret: 16+ chars without placeholder chars
+#   - bcrypt hash (BASIC_AUTH_HASH): the real $2y$10$... form only
+if grep -rInE '(CLOUDFLARE_API_TOKEN|PVE_TOKEN_SECRET)=[^$%< ]{16,}|BASIC_AUTH_HASH=\$2[aby]\$10\$.{20,}' \
      --exclude-dir=.git --exclude-dir=.omo --exclude-dir=.venv . 2>/dev/null; then
   echo "ERROR: possible secret value found in the tree"
   fail=1

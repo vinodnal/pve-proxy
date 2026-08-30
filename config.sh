@@ -38,6 +38,7 @@ echo "  5) Edit services.yaml"
 echo "  6) Re-sync now"
 echo "  7) Show status"
 echo "  8) Basic auth hash (for services with auth: basic)"
+echo "  9) Create/update Cloudflare DNS record (wildcard A -> tailscale IP)"
 echo "  0) Exit"
 echo ""
 read -r -p "  Choice: " CHOICE
@@ -135,6 +136,17 @@ case "$CHOICE" in
       /usr/local/bin/pve-proxy-sync.sh
       msg_ok "Sync complete"
     fi
+    ;;
+  9)
+    DOMAIN=$(grep -oP 'DOMAIN=\K.*' /etc/pve-proxy/proxy.env 2>/dev/null || true)
+    TS_IP=$(tailscale ip -4 2>/dev/null | head -n1 | tr -d '\r' || true)
+    if [ -z "$TS_IP" ]; then
+      echo "  tailscale IP not available - is the node joined to the tailnet?"
+      echo "  Run: tailscale up --hostname=\$(hostname) --advertise-tags=tag:pve-proxy"
+      exit 1
+    fi
+    /usr/local/bin/pve-proxy-dns.sh "$DOMAIN" "$TS_IP"
+    msg_ok "DNS record set: *.$DOMAIN -> $TS_IP"
     ;;
   0)
     echo "Bye."

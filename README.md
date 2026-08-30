@@ -10,16 +10,27 @@ On a Proxmox VE node:
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/vinodnal/pve-proxy/master/install.sh)"
 ```
 
-The installer asks interactively for everything environment-specific:
+The installer asks for only the environment-specific values:
 
 - Container ID (auto-detects the next free one), hostname, resources
 - Wildcard base domain (e.g. `pve.example.com`) and ACME contact email
-- Cloudflare API token (`Zone:DNS:Edit` scope)
-- PVE API token ID + secret, and PVE host address
+- Cloudflare authentication (see [API keys](#api-keys))
+- Tailscale pre-auth key — optional, enables fully automatic setup
+- Basic-auth hash — optional
 
-Secrets are written directly into the container and never logged. The PVE cluster
-CA is pushed into the container so the sync verifies the PVE API TLS certificate
-(no `-k`).
+The **PVE API token is auto-created** by the installer (it runs as root on the PVE
+host), so you don't provide one. Secrets are written directly into the container
+and never logged. The PVE cluster CA is pushed into the container so the sync
+verifies the PVE API TLS certificate (no `-k`).
+
+### API keys
+
+| What | Required | Notes |
+|------|----------|-------|
+| Cloudflare API token | yes | `Zone:Read` + `Zone:DNS:Edit` on your zone (DNS-01 wildcard cert + auto DNS record). Or choose option 2 and the installer mints a scoped token from your **Global API Key** (the global key is not stored). |
+| Tailscale pre-auth key | optional | Tagged `tag:pve-proxy`. With it the installer joins the tailnet, creates the DNS record, runs the first sync, and starts Caddy — zero manual steps. |
+| PVE API token | no | Auto-created (`pve-proxy@pam!sync`, `PVEAuditor` role). |
+| ACME email | yes | Just a contact email for Let's Encrypt. |
 
 ## Architecture
 
@@ -72,55 +83,43 @@ pve-proxy/
 ├── CHANGELOG.md                        # Release notes
 └── usr/local/bin/
     ├── pve-proxy-sync.sh                # Discovery: PVE API → render → validate → reload
+    ├── pve-proxy-dns.sh                 # Creates/updates the Cloudflare wildcard A record
     └── render_caddyfile.py              # Merges live data + services.yaml + domain
 ```
 
 ## Prerequisites
 
-Create the PVE API token on any PVE node (name it whatever you like):
-
-```bash
-pveum user add pve-proxy@pam
-pveum aclmod / -user pve-proxy@pam -role PVEAuditor
-pveum user token add pve-proxy@pam sync --privsep 0
-```
-
-Save the token ID (`pve-proxy@pam!sync`) and secret — the installer asks for them.
-
-You also need a Cloudflare API token with `Zone:DNS:Edit` scope on your zone.
+- **A Cloudflare API token** with `Zone:Read` + `Zone:DNS:Edit` on the zone — or the
+  zone's **Global API Key** + email, and the installer will auto-create the scoped
+  token for you.
+- **Optional:** a Tailscale pre-auth key tagged `tag:pve-proxy` for fully automatic
+  setup (Tailscale admin console → Settings → Keys).
+- **No PVE token needed** — the installer creates `pve-proxy@pam` + `PVEAuditor` and
+  its token automatically (it runs as root on the node).
 
 ## Post-Install Steps
 
-After the installer finishes, enter the container and:
+**If you provided a Tailscale pre-auth key:** nothing to do — the installer joined
+the tailnet, created the DNS record, ran the first sync, and started Caddy. The
+wildcard cert issues on first request.
+
+**If you skipped the Tailscale key:** one command after install:
 
 ```bash
-# Join tailnet
+pct enter <CTID>
 tailscale up --hostname=pve-proxy --advertise-tags=tag:pve-proxy
-
-# Note the IP for the DNS record
-tailscale ip -4
-
-# Run first sync
-/usr/local/bin/pve-proxy-sync.sh
-
-# Start Caddy
-systemctl start caddy
+tailscale ip -4          # note the IP, then:
+config.sh                # -> 9) Create/update Cloudflare DNS record
 ```
 
-Then create a Cloudflare DNS record:
-
-| Type | Name | Content | Proxy |
-|------|------|---------|-------|
-| A | `*.<domain>` | `100.x.x.x` (Tailscale IP) | DNS only |
+(First sync and Caddy are already started by the installer.)
 
 Optional (sensitive services only): set a basic-auth hash so `auth: basic` entries
 in `services.yaml` actually get protected:
 
 ```bash
-# generate a bcrypt hash
-caddy hash-password
-# then store it
-config.sh   # -> 8) Basic auth hash
+caddy hash-password      # generate a bcrypt hash
+config.sh                # -> 8) Basic auth hash
 ```
 
 ## Adding a Service

@@ -16,7 +16,7 @@ REPO_URL="${2:-https://github.com/vinodnal/pve-proxy}"
 # ── 1. Base packages ─────────────────────────────────────────
 msg_info "Installing base packages"
 apt-get update -qq >/dev/null 2>&1
-apt-get install -yqq curl gnupg ca-certificates git golang-go cron >/dev/null 2>&1
+apt-get install -yqq curl gnupg ca-certificates git golang-go cron python3 >/dev/null 2>&1
 msg_ok "Base packages installed"
 
 # ── 2. Install uv + Python dependencies ──────────────────────
@@ -60,7 +60,8 @@ msg_ok "User and directories created"
 msg_info "Deploying project files"
 cp "$REPO_DIR/usr/local/bin/render_caddyfile.py" /usr/local/bin/render_caddyfile.py
 cp "$REPO_DIR/usr/local/bin/pve-proxy-sync.sh"   /usr/local/bin/pve-proxy-sync.sh
-chmod +x /usr/local/bin/render_caddyfile.py /usr/local/bin/pve-proxy-sync.sh
+cp "$REPO_DIR/usr/local/bin/pve-proxy-dns.sh"     /usr/local/bin/pve-proxy-dns.sh
+chmod +x /usr/local/bin/render_caddyfile.py /usr/local/bin/pve-proxy-sync.sh /usr/local/bin/pve-proxy-dns.sh
 
 cp "$REPO_DIR/etc/caddy/Caddyfile.template"       /etc/caddy/Caddyfile.template
 cp "$REPO_DIR/etc/pve-proxy/services.yaml"         /etc/pve-proxy/services.yaml

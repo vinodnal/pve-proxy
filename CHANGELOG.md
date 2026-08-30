@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- Fully automatic setup: the **PVE API token is auto-created** at install (no key to
+  provide); an optional Tailscale pre-auth key enables zero-step post-install
+  (auto-join tailnet, auto DNS record, first sync, Caddy start).
+- `pve-proxy-dns.sh`: creates/updates the Cloudflare wildcard `*.domain` A record
+  (also available as `config.sh` → 9).
+- Optional Cloudflare token auto-minting from a Global API Key (key is used in
+  memory only, never stored).
+
+### Changed
+
+- Cloudflare token scope: `Zone:Read` + `Zone:DNS:Edit` (Zone:Read added for the
+  automatic DNS record).
+- Install prompts simplified; PVE host auto-detected from the node.
+- Secret scan in `scripts/check.sh` no longer flags token IDs or placeholders.
+
 ## [1.0.0] - 2026-08-30
 
 Initial hardened release.

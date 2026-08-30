@@ -15,8 +15,9 @@
 
 | Token | Scope | Leak impact |
 |-------|-------|-------------|
-| Cloudflare API token | `Zone:DNS:Edit` on **one** zone | DNS hijack + ACME DNS-01 can issue TLS certs for arbitrary names in that zone. **Rotate immediately if leaked.** |
-| PVE API token | `PVEAuditor` role on `/` (read-only container discovery) | Read-only inventory leak (container names/IPs). No container power. |
+| Cloudflare API token | `Zone:Read` + `Zone:DNS:Edit` on **one** zone | DNS hijack + ACME DNS-01 can issue TLS certs for arbitrary names in that zone. **Rotate immediately if leaked.** |
+| Cloudflare Global API Key | full account (only used to auto-mint the token above; **never stored or logged**) | Full account compromise. Only enter it if you choose "auto-create token"; it is used in memory and discarded. |
+| PVE API token | `PVEAuditor` role on `/` (read-only container discovery); **auto-created at install** | Read-only inventory leak (container names/IPs). No container power. |
 
 ## Secret handling
 

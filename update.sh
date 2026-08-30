@@ -22,7 +22,8 @@ msg_ok "Repository updated"
 msg_info "Deploying updated files"
 cp "$REPO_DIR/usr/local/bin/render_caddyfile.py" /usr/local/bin/render_caddyfile.py
 cp "$REPO_DIR/usr/local/bin/pve-proxy-sync.sh"   /usr/local/bin/pve-proxy-sync.sh
-chmod +x /usr/local/bin/render_caddyfile.py /usr/local/bin/pve-proxy-sync.sh
+cp "$REPO_DIR/usr/local/bin/pve-proxy-dns.sh"     /usr/local/bin/pve-proxy-dns.sh
+chmod +x /usr/local/bin/render_caddyfile.py /usr/local/bin/pve-proxy-sync.sh /usr/local/bin/pve-proxy-dns.sh
 
 cp "$REPO_DIR/etc/caddy/Caddyfile.template"       /etc/caddy/Caddyfile.template
 cp "$REPO_DIR/etc/pve-proxy/services.yaml"         /etc/pve-proxy/services.yaml
