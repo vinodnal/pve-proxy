@@ -25,6 +25,8 @@ EOF
 
 # ── Defaults (generic; everything can be overridden) ─────────
 APP="PVE-Proxy"
+# Canonical repo; override with PVE_PROXY_REPO to install from a fork/mirror.
+REPO_URL="${PVE_PROXY_REPO:-https://github.com/vinodnal/pve-proxy}"
 HN_DEFAULT="pve-proxy"
 DISK_SIZE_DEFAULT="4"
 CORE_COUNT_DEFAULT="1"
@@ -179,7 +181,7 @@ fi
 
 # ── Run installer inside the container ────────────────────────
 msg_info "Running installer inside CT $CTID (this takes a few minutes)"
-pct exec "$CTID" -- bash /root/pve-proxy/install/pve-proxy-install.sh /root/pve-proxy
+pct exec "$CTID" -- bash /root/pve-proxy/install/pve-proxy-install.sh /root/pve-proxy "$REPO_URL"
 msg_ok "Installer complete"
 
 # ── Lock down secrets ─────────────────────────────────────────

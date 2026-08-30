@@ -9,6 +9,9 @@ function msg_ok()   { echo -e  " ${CM} $*"; }
 function msg_error(){ echo -e  " ${CROSS} $*"; exit 1; }
 
 REPO_DIR="${1:-/root/pve-proxy}"
+# Canonical repo; the host installer passes its source via $2 so a fork/mirror
+# install updates from the same place (PVE_PROXY_REPO).
+REPO_URL="${2:-https://github.com/vinodnal/pve-proxy}"
 
 # ── 1. Base packages ─────────────────────────────────────────
 msg_info "Installing base packages"
@@ -72,7 +75,7 @@ git init -q /etc/pve-proxy 2>/dev/null || true
 # ── 7. Initialize the container-side repo so update.sh can pull ──
 if [ ! -d "$REPO_DIR/.git" ]; then
   git -C "$REPO_DIR" init -q
-  git -C "$REPO_DIR" remote add origin https://github.com/vinodnal/pve-proxy.git
+  git -C "$REPO_DIR" remote add origin "$REPO_URL"
   git -C "$REPO_DIR" add -A
   git -C "$REPO_DIR" -c user.email="pve-proxy@localhost" -c user.name="pve-proxy" \
     commit -qm "installed snapshot $(date -Iseconds)"

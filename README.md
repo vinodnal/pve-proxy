@@ -230,7 +230,9 @@ Commits use [conventional commits](https://www.conventionalcommits.org/), e.g.
 - Access logging to `/var/log/caddy/access.log` (rotated, JSON) for audit.
 - Certificate expiry is monitored and warns via journald when < 14 days remain.
 - Pinned toolchain: Caddy v2.10.2, xcaddy v0.4.7, cloudflare DNS v0.2.4, uv 0.12.7.
-  Pin the whole install to a release tag with `PVE_PROXY_REF=v1.x.y` (default `master`).
+  Pin the whole install to a release tag with `PVE_PROXY_REF=v1.x.y` (default
+  `master`); override the source repo with `PVE_PROXY_REPO=<url>` (default: the
+  upstream repo).
 
 ## License
 
