@@ -26,7 +26,7 @@ HOLD=" "
 function msg_info() { echo -e "${BFR}${CM} ${YW}$*${CL}"; }
 function msg_ok()   { echo -e "${BFR}${CM} ${GN}$*${CL}"; }
 function msg_warn() { echo -e "${BFR}${YW}⚠ $*${CL}"; }
-function msg_error(){ echo -e "${BFR}${CROSS} ${RD}$*${CL}"; }
+function msg_error(){ echo -e "${BFR}${CROSS} ${RD}$*${CL}"; exit 1; }
 function msg_sub()  { echo -e "${BFR}  ${DGN}» $*${CL}"; }
 
 # ── Safety / no-ops kept for API compatibility ────────────────

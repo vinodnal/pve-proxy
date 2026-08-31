@@ -23,6 +23,15 @@ DOMAIN=$(get_env "$WORKDIR/proxy.env" DOMAIN)
 EMAIL=$(get_env "$WORKDIR/proxy.env" EMAIL)
 BASIC_AUTH_HASH=$(get_env "$WORKDIR/proxy.env" BASIC_AUTH_HASH)
 
+# ── Guards: required inputs must exist before we do anything ──
+for f in "$WORKDIR/pve-token.env" "$WORKDIR/proxy.env" "$TEMPLATE" "$SERVICES"; do
+  [ -f "$f" ] || { echo "pve-proxy-sync: missing required file: $f" >&2; exit 1; }
+done
+[ -n "$PVE_HOST" ] || { echo "pve-proxy-sync: PVE_HOST is not set" >&2; exit 1; }
+[ -n "$PVE_TOKEN_SECRET" ] || { echo "pve-proxy-sync: PVE token secret is not set" >&2; exit 1; }
+[ -n "$DOMAIN" ] || { echo "pve-proxy-sync: DOMAIN is not set" >&2; exit 1; }
+command -v caddy >/dev/null 2>&1 || { echo "pve-proxy-sync: caddy binary not found" >&2; exit 1; }
+
 # ── Safety: never let secrets end up in git history ───────────
 if [ ! -f "$WORKDIR/.gitignore" ]; then
   printf '*.env\n*.staged\n*.previous\nlive-containers.json\ncerts.json\npve-ssl-ca.pem\n*.log\n' > "$WORKDIR/.gitignore"
@@ -55,6 +64,12 @@ curl -s "${CURL_OPTS[@]}" \
   "https://${PVE_HOST}:8006/api2/json/cluster/resources?type=vm" \
   > live-containers.json
 chmod 600 live-containers.json
+# Guard: the API response must be valid JSON with a data array.
+if ! /opt/pve-proxy/.venv/bin/python -c 'import json,sys; d=json.load(open("live-containers.json")); assert isinstance(d.get("data"), list)' 2>/dev/null; then
+  echo "pve-proxy-sync: PVE API returned an invalid response; aborting" >&2
+  systemd-cat -t pve-proxy -p err <<< "sync failed: invalid PVE API response at $(date -Iseconds)"
+  exit 1
+fi
 
 # Render the Caddyfile from template + live data + services.yaml
 /opt/pve-proxy/.venv/bin/python /usr/local/bin/render_caddyfile.py \

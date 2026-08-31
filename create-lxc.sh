@@ -153,9 +153,16 @@ pveum aclmod / -user pve-proxy@pam -role PVEAuditor >/dev/null 2>&1 || true
 pveum user token delete pve-proxy@pam sync >/dev/null 2>&1 || true
 PVE_TOKEN_JSON=$(pveum user token add pve-proxy@pam sync --privsep 0 --output-format json 2>/dev/null)
 PVE_TOKEN_ID="pve-proxy@pam!sync"
-PVE_TOKEN_SECRET=$(printf '%s' "$PVE_TOKEN_JSON" | json_get '(d.get("secret","") if isinstance(d,dict) else (d[0].get("secret","") if d else ""))')
+# PVE returns the one-time secret under the "value" field. Fall back to "secret"
+# or a plain grep if the shape ever changes on another PVE version.
+PVE_TOKEN_SECRET=$(printf '%s' "$PVE_TOKEN_JSON" \
+  | json_get '(d.get("value") or d.get("secret") or "") if isinstance(d, dict) else ((d[0].get("value") or d[0].get("secret") or "") if d else "")')
 if [ -z "$PVE_TOKEN_SECRET" ]; then
-  msg_error "Failed to create/parse the PVE API token"
+  PVE_TOKEN_SECRET=$(printf '%s' "$PVE_TOKEN_JSON" \
+    | sed -n 's/.*"\(value\|secret\)"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\2/p' | head -n1)
+fi
+if [ -z "$PVE_TOKEN_SECRET" ]; then
+  msg_error "Failed to create/parse the PVE API token. pveum output: $(printf '%s' "$PVE_TOKEN_JSON" | head -c 300)"
 fi
 msg_ok "PVE token auto-created: $PVE_TOKEN_ID"
 
@@ -221,10 +228,18 @@ pct create "$CTID" "local:vztmpl/$TEMPLATE" \
   --tags "proxy" \
   --onboot 1 \
   >/dev/null
+# Guard: confirm the container actually exists.
+pct config "$CTID" >/dev/null 2>&1 || msg_error "CT $CTID was not created"
 msg_ok "Created CT $CTID"
 
 msg_info "Starting CT $CTID"
 pct start "$CTID"
+# Guard: wait for the container to report running.
+for _ in $(seq 1 20); do
+  [ "$(pct status "$CTID" 2>/dev/null | awk '{print $2}')" = "running" ] && break
+  sleep 1
+done
+pct status "$CTID" | grep -q running || msg_error "CT $CTID did not reach 'running' state"
 setting_up_container
 network_check
 update_os
@@ -234,13 +249,30 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 msg_info "Pushing project files into CT $CTID"
 pct exec "$CTID" -- mkdir -p /root/pve-proxy
+PUSH_FAIL=0
+PUSHED=0
 while IFS= read -r -d '' f; do
   REL="${f#$SCRIPT_DIR/}"
   DIR=$(dirname "/root/pve-proxy/$REL")
-  pct exec "$CTID" -- mkdir -p "$DIR"
-  pct push "$CTID" "$f" "/root/pve-proxy/$REL"
+  pct exec "$CTID" -- mkdir -p "$DIR" || { msg_warn "mkdir failed for $DIR"; PUSH_FAIL=1; continue; }
+  if pct push "$CTID" "$f" "/root/pve-proxy/$REL"; then
+    PUSHED=$((PUSHED + 1))
+  else
+    msg_warn "push failed for $REL"
+    PUSH_FAIL=1
+  fi
 done < <(find "$SCRIPT_DIR" -type f -not -path "*/.git/*" -not -path "*/.omo/*" -not -path "*/.codegraph/*" ! -name "create-lxc.sh" -print0)
-msg_ok "Files pushed"
+if [ "$PUSH_FAIL" -ne 0 ]; then
+  msg_error "One or more files failed to push into CT $CTID"
+fi
+msg_ok "Pushed $PUSHED files"
+# Guard: confirm the installer script landed.
+pct exec "$CTID" -- test -f /root/pve-proxy/install/pve-proxy-install.sh \
+  || msg_error "Installer script missing in CT after push"
+
+# Guard: all required secrets must be non-empty before we write config.
+[ -n "$CF_TOKEN" ] || msg_error "Cloudflare token is empty"
+[ -n "$PVE_TOKEN_SECRET" ] || msg_error "PVE token secret is empty"
 
 # ── Write configuration into the container (injection-safe) ───
 # Values are written with printf to a temp file and pushed with pct push so no
@@ -273,7 +305,13 @@ fi
 
 # ── Run installer inside the container ────────────────────────
 msg_info "Running installer inside CT $CTID (this takes a few minutes)"
-pct exec "$CTID" -- bash /root/pve-proxy/install/pve-proxy-install.sh /root/pve-proxy "$REPO_URL"
+pct exec "$CTID" -- bash /root/pve-proxy/install/pve-proxy-install.sh /root/pve-proxy "$REPO_URL" \
+  || msg_error "Container installer failed (see output above)"
+# Guard: the installer must have built caddy and deployed the files.
+pct exec "$CTID" -- test -x /usr/local/bin/caddy \
+  || msg_error "Caddy binary missing after install"
+pct exec "$CTID" -- test -f /etc/pve-proxy/services.yaml \
+  || msg_error "Project files not deployed after install"
 msg_ok "Installer complete"
 
 # ── Lock down secrets ─────────────────────────────────────────
