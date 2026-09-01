@@ -30,7 +30,7 @@ REPO_URL="${PVE_PROXY_REPO:-https://github.com/vinodnal/pve-proxy}"
 HN_DEFAULT="pve-proxy"
 DISK_SIZE_DEFAULT="4"
 CORE_COUNT_DEFAULT="1"
-RAM_SIZE_DEFAULT="512"
+RAM_SIZE_DEFAULT="1024"  # headroom for the one-time Go/Caddy build; 512 is enough at runtime
 BRG_DEFAULT="vmbr0"
 NET_DEFAULT="dhcp"
 
@@ -295,10 +295,15 @@ pct push "$CTID" "$TMPCF" /etc/pve-proxy/proxy.env
 msg_ok "Configuration written"
 
 # ── Push PVE cluster CA so sync verifies API TLS (no -k) ──────
+# Path differs across PVE versions; try the common locations.
 msg_info "Pushing PVE cluster CA"
-if [ -f /etc/pve/local/pve-ssl-ca.pem ]; then
-  pct push "$CTID" /etc/pve/local/pve-ssl-ca.pem /etc/pve-proxy/pve-ssl-ca.pem
-  msg_ok "PVE CA pushed"
+PVE_CA=""
+for c in /etc/pve/pve-root-ca.pem /etc/pve/local/pve-ssl-ca.pem; do
+  [ -f "$c" ] && PVE_CA="$c" && break
+done
+if [ -n "$PVE_CA" ]; then
+  pct push "$CTID" "$PVE_CA" /etc/pve-proxy/pve-ssl-ca.pem
+  msg_ok "PVE CA pushed ($PVE_CA)"
 else
   msg_warn "PVE CA not found on host; sync will fall back to insecure TLS (-k)"
 fi
