@@ -64,13 +64,14 @@ if ! go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.7 >/tmp/xcaddy-ins
   tail -30 /tmp/xcaddy-install.log >&2
   msg_error "go install xcaddy failed"
 fi
-if ! xcaddy build v2.10.2 --with github.com/caddy-dns/cloudflare@v0.2.4 >/tmp/xcaddy-build.log 2>&1; then
+# Build straight to the final path (no mv, no cwd ambiguity).
+if ! xcaddy build v2.10.2 -output /usr/local/bin/caddy \
+     --with github.com/caddy-dns/cloudflare@v0.2.4 >/tmp/xcaddy-build.log 2>&1; then
   echo "--- xcaddy build failed; tail of log:" >&2
   tail -30 /tmp/xcaddy-build.log >&2
   msg_error "xcaddy build failed"
 fi
-mv ./caddy /usr/local/bin/caddy
-if caddy list-modules 2>/dev/null | grep -q cloudflare; then
+if /usr/local/bin/caddy list-modules 2>/dev/null | grep -q cloudflare; then
   msg_ok "Caddy built (cloudflare module verified)"
 else
   msg_error "Caddy build failed: cloudflare module missing"
