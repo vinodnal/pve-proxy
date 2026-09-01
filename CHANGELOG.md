@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Installer: replaced the per-file `pct push` loop with a single `tar | pct exec`
+  stream (a transient `pct exec` failure could previously drop a file and abort);
+  added post-push guards for key files.
+
 ## [1.1.0] - 2026-08-31
 
 ### Added

@@ -247,28 +247,28 @@ update_os
 # ── Push repo files into the container ────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-msg_info "Pushing project files into CT $CTID"
-pct exec "$CTID" -- mkdir -p /root/pve-proxy
-PUSH_FAIL=0
-PUSHED=0
-while IFS= read -r -d '' f; do
-  REL="${f#$SCRIPT_DIR/}"
-  DIR=$(dirname "/root/pve-proxy/$REL")
-  pct exec "$CTID" -- mkdir -p "$DIR" || { msg_warn "mkdir failed for $DIR"; PUSH_FAIL=1; continue; }
-  if pct push "$CTID" "$f" "/root/pve-proxy/$REL"; then
-    PUSHED=$((PUSHED + 1))
-  else
-    msg_warn "push failed for $REL"
-    PUSH_FAIL=1
-  fi
-done < <(find "$SCRIPT_DIR" -type f -not -path "*/.git/*" -not -path "*/.omo/*" -not -path "*/.codegraph/*" ! -name "create-lxc.sh" -print0)
-if [ "$PUSH_FAIL" -ne 0 ]; then
-  msg_error "One or more files failed to push into CT $CTID"
+# ── Push repo files into the container (single tar stream) ───
+# Per-file `pct exec mkdir` + `pct push` was flaky (transient pct exec failures
+# could drop a file and abort). Streaming one tarball over pct exec stdin is one
+# atomic operation and much faster. pct exec forwards stdin on PVE.
+msg_info "Pushing project files into CT $CTID (tar stream)"
+command -v tar >/dev/null 2>&1 || msg_error "tar not found on host"
+pct exec "$CTID" -- mkdir -p /root/pve-proxy || msg_error "cannot create /root/pve-proxy in CT"
+if ! tar -C "$SCRIPT_DIR" -cf - \
+       --exclude='./.git' --exclude='./.git/*' \
+       --exclude='./.omo' --exclude='./.omo/*' \
+       --exclude='./.codegraph' --exclude='./.codegraph/*' \
+       --exclude='./create-lxc.sh' \
+       . \
+     | pct exec "$CTID" -- tar -C /root/pve-proxy -xf -; then
+  msg_error "Failed to stream project files into CT $CTID"
 fi
-msg_ok "Pushed $PUSHED files"
-# Guard: confirm the installer script landed.
-pct exec "$CTID" -- test -f /root/pve-proxy/install/pve-proxy-install.sh \
-  || msg_error "Installer script missing in CT after push"
+# Guard: confirm the key files actually landed.
+pct exec "$CTID" -- bash -c 'test -f /root/pve-proxy/install/pve-proxy-install.sh &&
+  test -f /root/pve-proxy/usr/local/bin/render_caddyfile.py &&
+  test -f /root/pve-proxy/etc/caddy/Caddyfile.template' \
+  || msg_error "Project files incomplete in CT after push"
+msg_ok "Project files pushed"
 
 # Guard: all required secrets must be non-empty before we write config.
 [ -n "$CF_TOKEN" ] || msg_error "Cloudflare token is empty"
