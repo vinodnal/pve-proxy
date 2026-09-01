@@ -39,6 +39,12 @@ msg_ok "Tailscale installed"
 # ── 4. Build Caddy with Cloudflare DNS plugin ────────────────
 msg_info "Building Caddy with Cloudflare DNS plugin (this takes a while)"
 
+# Guard: the Go build needs ~2 GB of free disk for modules + build cache.
+AVAIL_KB=$(df -k / 2>/dev/null | awk 'NR==2{print $4}')
+if [ -n "$AVAIL_KB" ] && [ "$AVAIL_KB" -lt 2000000 ]; then
+  msg_error "Not enough disk for the Caddy build (need ~2 GB free, have $((AVAIL_KB/1024)) MB). Increase the container disk."
+fi
+
 # Debian 12 ships Go 1.19, which is too old for Caddy 2.10 / xcaddy 0.4.x.
 # Install a pinned modern Go from go.dev (override with GO_VERSION=goX.Y.Z).
 GO_VERSION="${GO_VERSION:-go1.27.1}"
@@ -69,6 +75,9 @@ if caddy list-modules 2>/dev/null | grep -q cloudflare; then
 else
   msg_error "Caddy build failed: cloudflare module missing"
 fi
+# Reclaim the Go module/build caches (~2 GB) — not needed at runtime.
+go clean -cache -modcache 2>/dev/null || true
+msg_ok "Go caches cleaned"
 
 # ── 5. System user + directories ─────────────────────────────
 msg_info "Creating caddy user and directories"

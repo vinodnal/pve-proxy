@@ -28,9 +28,9 @@ APP="PVE-Proxy"
 # Canonical repo; override with PVE_PROXY_REPO to install from a fork/mirror.
 REPO_URL="${PVE_PROXY_REPO:-https://github.com/vinodnal/pve-proxy}"
 HN_DEFAULT="pve-proxy"
-DISK_SIZE_DEFAULT="4"
+DISK_SIZE_DEFAULT="8"   # Go module cache + Caddy build need ~4 GB; runtime needs little
 CORE_COUNT_DEFAULT="1"
-RAM_SIZE_DEFAULT="1024"  # headroom for the one-time Go/Caddy build; 512 is enough at runtime
+RAM_SIZE_DEFAULT="2048"  # headroom for the one-time Go/Caddy build
 BRG_DEFAULT="vmbr0"
 NET_DEFAULT="dhcp"
 
