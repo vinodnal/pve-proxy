@@ -27,7 +27,10 @@ msg_ok "uv installed"
 
 msg_info "Setting up Python venv with uv"
 mkdir -p /opt/pve-proxy
-uv venv /opt/pve-proxy/.venv >/dev/null 2>&1
+# Idempotent: only create the venv if missing (uv refuses to overwrite it).
+if [ ! -d /opt/pve-proxy/.venv ]; then
+  uv venv /opt/pve-proxy/.venv >/dev/null 2>&1
+fi
 uv pip install --python /opt/pve-proxy/.venv/bin/python -r "$REPO_DIR/requirements.txt" >/dev/null 2>&1
 msg_ok "Python dependencies installed"
 
@@ -48,37 +51,48 @@ fi
 # Debian 12 ships Go 1.19, which is too old for Caddy 2.10 / xcaddy 0.4.x.
 # Install a pinned modern Go from go.dev (override with GO_VERSION=goX.Y.Z).
 GO_VERSION="${GO_VERSION:-go1.27.1}"
-msg_info "Installing Go (pinned $GO_VERSION)"
-curl -fsSL "https://go.dev/dl/${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz
-rm -rf /usr/local/go
-tar -C /usr/local -xzf /tmp/go.tgz
-rm -f /tmp/go.tgz
 export PATH="/usr/local/go/bin:$PATH"
-go version >/dev/null 2>&1 || msg_error "Go installation failed"
-msg_ok "Go installed: $(go version)"
+if /usr/local/go/bin/go version 2>/dev/null | grep -q "$GO_VERSION"; then
+  msg_ok "Go already installed: $(/usr/local/go/bin/go version)"
+else
+  msg_info "Installing Go (pinned $GO_VERSION)"
+  curl -fsSL "https://go.dev/dl/${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz
+  rm -rf /usr/local/go
+  tar -C /usr/local -xzf /tmp/go.tgz
+  rm -f /tmp/go.tgz
+  go version >/dev/null 2>&1 || msg_error "Go installation failed"
+  msg_ok "Go installed: $(go version)"
+fi
 
 export PATH="$PATH:$(go env GOPATH)/bin"
 # Pinned: xcaddy v0.4.7, caddy v2.10.2, cloudflare DNS plugin v0.2.4
-if ! go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.7 >/tmp/xcaddy-install.log 2>&1; then
-  echo "--- go install xcaddy failed; tail of log:" >&2
-  tail -30 /tmp/xcaddy-install.log >&2
-  msg_error "go install xcaddy failed"
+if ! command -v xcaddy >/dev/null 2>&1; then
+  if ! go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.7 >/tmp/xcaddy-install.log 2>&1; then
+    echo "--- go install xcaddy failed; tail of log:" >&2
+    tail -30 /tmp/xcaddy-install.log >&2
+    msg_error "go install xcaddy failed"
+  fi
 fi
-# Build straight to the final path (no mv, no cwd ambiguity).
-if ! xcaddy build v2.10.2 --output /usr/local/bin/caddy \
-     --with github.com/caddy-dns/cloudflare@v0.2.4 >/tmp/xcaddy-build.log 2>&1; then
-  echo "--- xcaddy build failed; tail of log:" >&2
-  tail -30 /tmp/xcaddy-build.log >&2
-  msg_error "xcaddy build failed"
-fi
+# Skip the rebuild if a good caddy already exists (resumable installs).
 if /usr/local/bin/caddy list-modules 2>/dev/null | grep -q cloudflare; then
-  msg_ok "Caddy built (cloudflare module verified)"
+  msg_ok "Caddy already built (cloudflare module present)"
 else
-  msg_error "Caddy build failed: cloudflare module missing"
+  # Build straight to the final path (no mv, no cwd ambiguity).
+  if ! xcaddy build v2.10.2 --output /usr/local/bin/caddy \
+       --with github.com/caddy-dns/cloudflare@v0.2.4 >/tmp/xcaddy-build.log 2>&1; then
+    echo "--- xcaddy build failed; tail of log:" >&2
+    tail -30 /tmp/xcaddy-build.log >&2
+    msg_error "xcaddy build failed"
+  fi
+  if /usr/local/bin/caddy list-modules 2>/dev/null | grep -q cloudflare; then
+    msg_ok "Caddy built (cloudflare module verified)"
+  else
+    msg_error "Caddy build failed: cloudflare module missing"
+  fi
+  # Reclaim the Go module/build caches (~2 GB) — not needed at runtime.
+  go clean -cache -modcache 2>/dev/null || true
+  msg_ok "Go caches cleaned"
 fi
-# Reclaim the Go module/build caches (~2 GB) — not needed at runtime.
-go clean -cache -modcache 2>/dev/null || true
-msg_ok "Go caches cleaned"
 
 # ── 5. System user + directories ─────────────────────────────
 msg_info "Creating caddy user and directories"
