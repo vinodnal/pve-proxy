@@ -65,7 +65,7 @@ else
 fi
 
 export PATH="$PATH:$(go env GOPATH)/bin"
-# Pinned: xcaddy v0.4.7, caddy v2.10.2, cloudflare DNS plugin v0.2.4
+# Pinned: xcaddy v0.4.7, caddy v2.11.4, cloudflare DNS plugin v0.2.4
 if ! command -v xcaddy >/dev/null 2>&1; then
   if ! go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.7 >/tmp/xcaddy-install.log 2>&1; then
     echo "--- go install xcaddy failed; tail of log:" >&2
@@ -78,7 +78,9 @@ if /usr/local/bin/caddy list-modules 2>/dev/null | grep -q cloudflare; then
   msg_ok "Caddy already built (cloudflare module present)"
 else
   # Build straight to the final path (no mv, no cwd ambiguity).
-  if ! xcaddy build v2.10.2 --output /usr/local/bin/caddy \
+  # NOTE: v2.11.4 is the minimum that works with cloudflare plugin v0.2.4
+  # (older 2.10.2 panics in the TLS module loader at runtime).
+  if ! xcaddy build v2.11.4 --output /usr/local/bin/caddy \
        --with github.com/caddy-dns/cloudflare@v0.2.4 >/tmp/xcaddy-build.log 2>&1; then
     echo "--- xcaddy build failed; tail of log:" >&2
     tail -30 /tmp/xcaddy-build.log >&2

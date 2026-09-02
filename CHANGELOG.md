@@ -9,6 +9,9 @@ All notable changes to this project are documented in this file.
 - Installer: replaced the per-file `pct push` loop with a single `tar | pct exec`
   stream (a transient `pct exec` failure could previously drop a file and abort);
   added post-push guards for key files.
+- Caddy pinned to `v2.11.4`: the `caddy-dns/cloudflare` plugin `v0.2.4` is built
+  against Caddy 2.7.5 and **panics at runtime in the TLS module loader** with
+  Caddy 2.10.2. `v2.11.4` loads the plugin cleanly (verified end-to-end).
 
 ## [1.1.0] - 2026-08-31
 
@@ -41,7 +44,7 @@ Initial hardened release.
   `BASIC_AUTH_HASH`) — now actually enforced end-to-end.
 - Access logging to `/var/log/caddy/access.log` (rotated, JSON).
 - Certificate-expiry alerting via the Caddy admin API (warns via journald < 14 days).
-- Pinned toolchain: Caddy `v2.10.2`, xcaddy `v0.4.7`, cloudflare DNS plugin `v0.2.4`,
+- Pinned toolchain: Caddy `v2.11.4`, xcaddy `v0.4.7`, cloudflare DNS plugin `v0.2.4`,
   uv `0.12.7`, jinja2 `3.1.6`, pyyaml `6.0.3`. `PVE_PROXY_REF` pins the whole install
   to a release tag.
 - Git hooks (`hooks/`) and `scripts/check.sh` for local validation (bash -n, Python
