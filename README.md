@@ -167,6 +167,37 @@ bash /root/pve-proxy/config.sh
 
 Interactive menu to update tokens, PVE host, domain/email, edit services, trigger a sync, or show status.
 
+## Operations: status & logs
+
+Inside the container, check the health of the whole stack in one place:
+
+```bash
+pve-proxy-status.sh              # human dashboard
+pve-proxy-status.sh --json       # machine-readable aggregate (collector)
+pve-proxy-status.sh --tail       # tail the central log
+```
+
+The dashboard shows Caddy service/config state, the last sync result, configuration
+presence (tokens shown as `set`/`empty`, never their value), scheduler status, and
+certificate expiry.
+
+**Central logging.** All components (`sync`, `dns`, `update`, `install`, `status`)
+write timestamped, level-tagged lines to a single central log:
+
+```bash
+tail -f /var/log/pve-proxy/pve-proxy.log      # central log
+tail -f /var/lib/pve-proxy/state/sync.json    # last sync outcome (for the collector)
+journalctl -t 'pve-proxy*'                     # mirrored to journald
+```
+
+Every `pve-proxy-*.sh` exports a fixed `PATH` (including `/usr/local/bin`) so it
+works correctly under cron/systemd, which supply a minimal `PATH`. Guards fail
+**gracefully**: they log the reason, write a failure state (so the dashboard never
+shows a stale success), and exit non-zero without corrupting the live config.
+The cron job runs with `PP_QUIET=1` so it emits no mail spam; all structured
+logging goes to the central log and journald. Logs are rotated by
+`/etc/logrotate.d/pve-proxy`.
+
 ## Tailscale ACL (Recommended)
 
 ```json

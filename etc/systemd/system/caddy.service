@@ -8,9 +8,19 @@ Wants=network-online.target
 Type=notify
 User=caddy
 Group=caddy
-EnvironmentFile=/etc/pve-proxy/cloudflare.env
+# cloudflare.env is what feeds {env.CLOUDFLARE_API_TOKEN} in the Caddyfile.
+# The leading '-' means "ignore if missing" so a not-yet-configured install
+# still starts (it will simply not be able to issue wildcard certs).
+EnvironmentFile=-/etc/pve-proxy/cloudflare.env
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ExecStart=/usr/local/bin/caddy run --environ --config /etc/caddy/Caddyfile
 ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/Caddyfile --force
+# Graceful failure: if caddy crashes/transiently fails it comes back instead
+# of sitting dead, with rate limiting to avoid a hot crash-loop.
+Restart=on-failure
+RestartSec=5s
+StartLimitIntervalSec=300
+StartLimitBurst=5
 TimeoutStopSec=5s
 LimitNOFILE=1048576
 AmbientCapabilities=CAP_NET_BIND_SERVICE

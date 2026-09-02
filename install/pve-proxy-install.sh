@@ -100,23 +100,35 @@ fi
 msg_info "Creating caddy user and directories"
 groupadd --system caddy 2>/dev/null || true
 useradd --system --gid caddy --create-home --home-dir /var/lib/caddy --shell /usr/sbin/nologin caddy 2>/dev/null || true
-mkdir -p /etc/caddy /etc/pve-proxy /var/log/caddy
+mkdir -p /etc/caddy /etc/pve-proxy /var/log/caddy \
+         /usr/local/lib/pve-proxy \
+         /var/log/pve-proxy /var/lib/pve-proxy/state \
+         /etc/logrotate.d
 msg_ok "User and directories created"
 
 # ── 6. Deploy project files ──────────────────────────────────
 msg_info "Deploying project files"
-cp "$REPO_DIR/usr/local/bin/render_caddyfile.py" /usr/local/bin/render_caddyfile.py
-cp "$REPO_DIR/usr/local/bin/pve-proxy-sync.sh"   /usr/local/bin/pve-proxy-sync.sh
-cp "$REPO_DIR/usr/local/bin/pve-proxy-dns.sh"     /usr/local/bin/pve-proxy-dns.sh
-chmod +x /usr/local/bin/render_caddyfile.py /usr/local/bin/pve-proxy-sync.sh /usr/local/bin/pve-proxy-dns.sh
+cp "$REPO_DIR/usr/local/bin/render_caddyfile.py"   /usr/local/bin/render_caddyfile.py
+cp "$REPO_DIR/usr/local/bin/pve-proxy-sync.sh"     /usr/local/bin/pve-proxy-sync.sh
+cp "$REPO_DIR/usr/local/bin/pve-proxy-dns.sh"      /usr/local/bin/pve-proxy-dns.sh
+cp "$REPO_DIR/usr/local/bin/pve-proxy-status.sh"   /usr/local/bin/pve-proxy-status.sh
+cp "$REPO_DIR/usr/local/lib/pve-proxy/common.sh"   /usr/local/lib/pve-proxy/common.sh
+chmod +x /usr/local/bin/render_caddyfile.py /usr/local/bin/pve-proxy-sync.sh \
+         /usr/local/bin/pve-proxy-dns.sh /usr/local/bin/pve-proxy-status.sh
+chmod 0644 /usr/local/lib/pve-proxy/common.sh
 
 cp "$REPO_DIR/etc/caddy/Caddyfile.template"       /etc/caddy/Caddyfile.template
-cp "$REPO_DIR/etc/pve-proxy/services.yaml"         /etc/pve-proxy/services.yaml
+# Never clobber a live services.yaml (users edit it); seed the default once.
+if [ ! -f /etc/pve-proxy/services.yaml ]; then
+  cp "$REPO_DIR/etc/pve-proxy/services.yaml" /etc/pve-proxy/services.yaml
+fi
 # .gitignore MUST exist before `git init` so the sync snapshots never
 # commit the secret *.env files into git history.
 cp "$REPO_DIR/etc/pve-proxy/.gitignore"            /etc/pve-proxy/.gitignore
 cp "$REPO_DIR/etc/systemd/system/caddy.service"    /etc/systemd/system/caddy.service
 cp "$REPO_DIR/etc/cron.d/pve-proxy-sync"           /etc/cron.d/pve-proxy-sync
+cp "$REPO_DIR/etc/logrotate.d/pve-proxy"           /etc/logrotate.d/pve-proxy
+chmod 0644 /etc/cron.d/pve-proxy-sync /etc/logrotate.d/pve-proxy /etc/pve-proxy/.gitignore
 
 git init -q /etc/pve-proxy 2>/dev/null || true
 
@@ -132,5 +144,12 @@ fi
 systemctl daemon-reload
 systemctl enable caddy >/dev/null 2>&1
 msg_ok "Project files deployed"
+
+# Seed empty component state so pve-proxy-status.sh works immediately.
+mkdir -p /var/lib/pve-proxy/state
+printf '{"ts":"","ok":false,"stage":"install","error":"sync not run yet"}\n' \
+  > /var/lib/pve-proxy/state/sync.json
+printf '{"ts":"%s","ok":true,"stage":"install"}\n' "$(date -Is)" \
+  > /var/lib/pve-proxy/state/install.json
 
 msg_ok "Install complete"

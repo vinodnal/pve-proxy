@@ -62,6 +62,20 @@ def main():
     parser.add_argument("--out", required=True, help="Path to write rendered Caddyfile")
     args = parser.parse_args()
 
+    # Guardrails: refuse to render garbage instead of shipping a broken
+    # Caddyfile downstream (validate catches a subset; we catch the rest).
+    domain = (args.domain or "").strip()
+    if not re.fullmatch(
+        r"(?i)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*",
+        domain,
+    ):
+        print(f"error: --domain '{args.domain}' is not a valid DNS name", file=sys.stderr)
+        sys.exit(2)
+    email = (args.email or "").strip()
+    if "@" not in email or "." not in email.split("@", 1)[1]:
+        print(f"error: --email '{args.email}' is not a valid email address", file=sys.stderr)
+        sys.exit(2)
+
     live = load_live_containers(args.live)
     svc_map = load_services(args.services)
     if svc_map is None:
@@ -112,7 +126,10 @@ def main():
                       f"is configured; rendering it WITHOUT auth", file=sys.stderr)
         services.append(svc)
 
-    render(args.template, services, args.out, args.domain, args.email)
+    if not services:
+        print("warn: no services rendered (no matching running containers); "
+              "Caddyfile will only serve the base host", file=sys.stderr)
+    render(args.template, services, args.out, domain, email)
     print(f"Rendered {len(services)} services to {args.out}")
 
 

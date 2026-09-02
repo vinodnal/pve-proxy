@@ -1,0 +1,25 @@
+# pve-proxy log rotation.
+# Installed to /etc/logrotate.d/pve-proxy. Covers the central log plus the
+# legacy sync log from older installs. State files under /var/lib/pve-proxy
+# are small and intentionally not rotated (the collector overwrites them).
+/var/log/pve-proxy/pve-proxy.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 root root
+    su root adm
+}
+
+/var/log/pve-proxy-sync.log {
+    weekly
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 root root
+    su root adm
+}

@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 # Run inside the pve-proxy CT to reconfigure secrets or services.
-set -euo pipefail
+set -Eeuo pipefail
+
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Centralized logging/state (graceful fallback if lib not yet deployed).
+PP_COMPONENT=config
+if [ -f /usr/local/lib/pve-proxy/common.sh ]; then
+  # shellcheck disable=SC1091
+  . /usr/local/lib/pve-proxy/common.sh
+  pp_init
+fi
 
 YW="\033[33m"; GN="\033[1;92m"; RD="\033[01;31m"; BL="\033[36m"; CL="\033[m"
 CM="${GN}✓${CL}"; CROSS="${RD}✗${CL}"
@@ -102,25 +112,7 @@ case "$CHOICE" in
     msg_ok "Sync complete"
     ;;
   7)
-    echo ""
-    echo -e "${BL}Caddy status:${CL}"
-    systemctl status caddy --no-pager -l 2>/dev/null || echo "  Not running"
-    echo ""
-    echo -e "${BL}Tailscale status:${CL}"
-    tailscale status 2>/dev/null || echo "  Not connected"
-    echo ""
-    echo -e "${BL}Last sync log:${CL}"
-    tail -5 /var/log/pve-proxy-sync.log 2>/dev/null || echo "  No logs yet"
-    echo ""
-    echo -e "${BL}Active services:${CL}"
-    cat /etc/pve-proxy/services.yaml 2>/dev/null || echo "  No services configured"
-    echo ""
-    echo -e "${BL}Basic auth:${CL}"
-    if grep -q '^BASIC_AUTH_HASH=.' /etc/pve-proxy/proxy.env 2>/dev/null; then
-      echo "  configured"
-    else
-      echo "  not set (services with auth: basic will render WITHOUT auth)"
-    fi
+    /usr/local/bin/pve-proxy-status.sh
     ;;
   8)
     echo -e "${YW}Generate a hash with: caddy hash-password${CL}"

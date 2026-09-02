@@ -4,7 +4,31 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-02
+
+### Added
+
+- **Central logging** (`/usr/local/lib/pve-proxy/common.sh`): all components
+  (`sync`, `dns`, `update`, `install`, `status`) log timestamped, level-tagged
+  lines to `/var/log/pve-proxy/pve-proxy.log` and mirror to journald.
+- **Status collector & display** (`pve-proxy-status.sh`): one dashboard showing
+  Caddy state, last sync result, config presence, scheduler, and cert expiry
+  (`--json` for machine use, `--tail` for the log). Tokens shown as set/empty only.
+- **Component state files** under `/var/lib/pve-proxy/state/*.json` written
+  atomically on both success and every failure, so status never shows stale data.
+- `etc/logrotate.d/pve-proxy` rotation for the central and legacy logs.
+- Graceful-failure guardrails: guards log the reason, write failure state, and
+  never touch live config; cron runs with `PP_QUIET=1` (no mail spam).
+
 ### Fixed
+
+- **Cron PATH bug (root cause of silent failure):** cron/systemd supply a minimal
+  `PATH` that omits `/usr/local/bin`, so every scheduled sync died with
+  `caddy binary not found` and never generated the Caddyfile. All scripts now
+  export a fixed `PATH` and use `pp_require_cmd` with a clear message.
+- First-sync / caddy-start failures are no longer silently swallowed: installer
+  and update paths log and surface the error with remediation hints.
+- `services.yaml` is never overwritten on reinstall/update (seeded once).
 
 - Installer: replaced the per-file `pct push` loop with a single `tar | pct exec`
   stream (a transient `pct exec` failure could previously drop a file and abort);

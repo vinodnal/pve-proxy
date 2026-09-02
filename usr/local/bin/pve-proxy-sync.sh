@@ -1,5 +1,34 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+
+# cron/systemd supply a minimal PATH; our binaries live under /usr/local/bin.
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Centralized logging/state/guardrails (graceful fallback if not yet deployed).
+PP_COMPONENT="${PP_COMPONENT:-sync}"
+if [ -f /usr/local/lib/pve-proxy/common.sh ]; then
+  # shellcheck source=/usr/local/lib/pve-proxy/common.sh
+  # shellcheck disable=SC1091
+  . /usr/local/lib/pve-proxy/common.sh
+  pp_init
+else
+  pp_init() { :; }
+  pp_info() { echo "$*"; }
+  pp_ok()   { echo "OK: $*"; }
+  pp_warn() { echo "WARN: $*" >&2; }
+  pp_err()  { echo "ERROR: $*" >&2; }
+  pp_die()  { pp_err "$*"; exit 1; }
+  pp_write_state() { :; }
+  pp_require_cmd() { command -v "$1" >/dev/null 2>&1 || pp_die "required command not found: $1"; }
+fi
+pp_info "sync started (pid $$)"
+
+# Pre-flight guard failures must never leave a stale ok:true in the status
+# collector, so log the failure AND write a failure state before exiting.
+guard_fail() {
+  pp_write_state sync "{\"ts\":\"$(date -Is)\",\"ok\":false,\"stage\":\"guard\",\"error\":\"$*\"}"
+  pp_die "$*"
+}
 
 WORKDIR=/etc/pve-proxy
 CADDYFILE=/etc/caddy/Caddyfile
@@ -25,23 +54,47 @@ BASIC_AUTH_HASH=$(get_env "$WORKDIR/proxy.env" BASIC_AUTH_HASH)
 
 # ── Guards: required inputs must exist before we do anything ──
 for f in "$WORKDIR/pve-token.env" "$WORKDIR/proxy.env" "$TEMPLATE" "$SERVICES"; do
-  [ -f "$f" ] || { echo "pve-proxy-sync: missing required file: $f" >&2; exit 1; }
+  if [ ! -f "$f" ]; then
+    pp_err "missing required file: $f"
+    pp_write_state sync "{\"ts\":\"$(date -Is)\",\"ok\":false,\"stage\":\"guard\",\"error\":\"missing $f\"}"
+    exit 1
+  fi
 done
-[ -n "$PVE_HOST" ] || { echo "pve-proxy-sync: PVE_HOST is not set" >&2; exit 1; }
-[ -n "$PVE_TOKEN_SECRET" ] || { echo "pve-proxy-sync: PVE token secret is not set" >&2; exit 1; }
-[ -n "$DOMAIN" ] || { echo "pve-proxy-sync: DOMAIN is not set" >&2; exit 1; }
-command -v caddy >/dev/null 2>&1 || { echo "pve-proxy-sync: caddy binary not found" >&2; exit 1; }
+if [ -z "$PVE_HOST" ]; then
+  guard_fail "PVE_HOST is not set in $WORKDIR/pve-token.env (run config.sh -> 3)"
+fi
+if [ -z "$PVE_TOKEN_SECRET" ]; then
+  guard_fail "PVE token secret is not set in $WORKDIR/pve-token.env (run config.sh -> 2)"
+fi
+if [ -z "$DOMAIN" ]; then
+  guard_fail "DOMAIN is not set in $WORKDIR/proxy.env (run config.sh -> 4)"
+fi
+if [ -z "$EMAIL" ]; then
+  guard_fail "EMAIL is not set in $WORKDIR/proxy.env (config.sh -> 4)"
+fi
+pp_require_cmd caddy "Caddy binary (cloudflare build)"
+if ! /usr/local/bin/caddy list-modules 2>/dev/null | grep -q cloudflare; then
+  guard_fail "caddy binary is missing the cloudflare DNS module; reinstall with the cloudflare build"
+fi
+
+# Export the Cloudflare token so `caddy validate/reload` (which run as root, not
+# as the caddy service user) can expand {env.CLOUDFLARE_API_TOKEN} in the config.
+CLOUDFLARE_API_TOKEN=$(get_env "$WORKDIR/cloudflare.env" CLOUDFLARE_API_TOKEN)
+export CLOUDFLARE_API_TOKEN
+if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+  pp_warn "CLOUDFLARE_API_TOKEN is empty; wildcard (DNS-01) certs will not issue until set (config.sh -> 1)"
+fi
 
 # ── Safety: never let secrets end up in git history ───────────
 if [ ! -f "$WORKDIR/.gitignore" ]; then
   printf '*.env\n*.staged\n*.previous\nlive-containers.json\ncerts.json\npve-ssl-ca.pem\n*.log\n' > "$WORKDIR/.gitignore"
 fi
 if git ls-files 2>/dev/null | grep -Eq '(^|/)(cloudflare|pve-token|proxy)\.env$'; then
-  echo "pve-proxy-sync: SECRET env files are tracked in git; aborting." >&2
-  echo "  Remediation: remove them from history, e.g." >&2
-  echo "    git -C /etc/pve-proxy rm --cached cloudflare.env pve-token.env proxy.env" >&2
-  echo "    git -C /etc/pve-proxy filter-branch --index-filter 'git rm --cached --ignore-unmatch cloudflare.env pve-token.env proxy.env' -- --all" >&2
-  systemd-cat -t pve-proxy -p err <<< "sync aborted: secret env files tracked in git history"
+  pp_err "SECRET env files are tracked in git history; aborting."
+  pp_err "Remediation: remove them from history, e.g."
+  pp_err "  git -C /etc/pve-proxy rm --cached cloudflare.env pve-token.env proxy.env"
+  pp_err "  git -C /etc/pve-proxy filter-branch --index-filter 'git rm --cached --ignore-unmatch cloudflare.env pve-token.env proxy.env' -- --all"
+  pp_write_state sync "{\"ts\":\"$(date -Is)\",\"ok\":false,\"stage\":\"guard\",\"error\":\"secret env tracked in git\"}"
   exit 1
 fi
 
@@ -56,22 +109,28 @@ CURL_OPTS=(-H "Authorization: PVEAPIToken=${PVE_TOKEN_ID}=${PVE_TOKEN_SECRET}")
 if [ -f "$CA_FILE" ]; then
   CURL_OPTS+=(--cacert "$CA_FILE")
 else
-  echo "pve-proxy-sync: WARNING: PVE CA not found at $CA_FILE; using -k (TLS NOT verified)" >&2
-  systemd-cat -t pve-proxy -p warning <<< "PVE CA missing at $CA_FILE; sync used insecure TLS"
+  pp_warn "PVE CA not found at $CA_FILE; using -k (TLS NOT verified)"
   CURL_OPTS+=(-k)
 fi
-curl -s "${CURL_OPTS[@]}" \
-  "https://${PVE_HOST}:8006/api2/json/cluster/resources?type=vm" \
-  > live-containers.json
+pp_info "Fetching live container list from https://${PVE_HOST}:8006"
+if ! curl -sS --connect-timeout 10 --max-time 30 "${CURL_OPTS[@]}" \
+     "https://${PVE_HOST}:8006/api2/json/cluster/resources?type=vm" \
+     > live-containers.json; then
+  pp_err "PVE API request failed (network/TLS). Check PVE_HOST (config.sh -> 3) and CA bundle."
+  pp_write_state sync "{\"ts\":\"$(date -Is)\",\"ok\":false,\"stage\":\"api\",\"error\":\"curl failed\"}"
+  exit 1
+fi
 chmod 600 live-containers.json
 # Guard: the API response must be valid JSON with a data array.
 if ! /opt/pve-proxy/.venv/bin/python -c 'import json,sys; d=json.load(open("live-containers.json")); assert isinstance(d.get("data"), list)' 2>/dev/null; then
-  echo "pve-proxy-sync: PVE API returned an invalid response; aborting" >&2
-  systemd-cat -t pve-proxy -p err <<< "sync failed: invalid PVE API response at $(date -Iseconds)"
+  pp_err "PVE API returned an invalid/empty response; aborting"
+  pp_write_state sync "{\"ts\":\"$(date -Is)\",\"ok\":false,\"stage\":\"api\",\"error\":\"invalid PVE API response\"}"
   exit 1
 fi
+pp_ok "PVE API response valid"
 
 # Render the Caddyfile from template + live data + services.yaml
+pp_info "Rendering Caddyfile from template + live data"
 /opt/pve-proxy/.venv/bin/python /usr/local/bin/render_caddyfile.py \
   --live live-containers.json \
   --services "$SERVICES" \
@@ -83,25 +142,41 @@ fi
 
 # Validate before touching live config
 if ! caddy validate --config "$STAGED"; then
-  echo "pve-proxy-sync: generated Caddyfile failed validation, aborting" >&2
-  systemd-cat -t pve-proxy -p err <<< "sync failed: Caddyfile validation error at $(date -Iseconds)"
+  pp_err "generated Caddyfile failed validation; live config untouched"
+  pp_write_state sync "{\"ts\":\"$(date -Is)\",\"ok\":false,\"stage\":\"validate\",\"error\":\"caddy validate failed\"}"
   exit 1
 fi
+pp_ok "Caddyfile validation passed"
 
-# Replace live file (keep the previous good one for rollback) and reload
+# ── Apply and (re)load, with rollback ────────────────────────
+# Keep the previous good config so any reload/start failure can be undone.
 cp "$CADDYFILE" "$PREVIOUS" 2>/dev/null || true
 cp "$STAGED" "$CADDYFILE"
-if ! caddy reload --config "$CADDYFILE"; then
-  echo "pve-proxy-sync: reload failed, rolling back" >&2
-  systemd-cat -t pve-proxy -p err <<< "sync failed: caddy reload error at $(date -Iseconds)"
-  if [ -f "$PREVIOUS" ]; then
-    cp "$PREVIOUS" "$CADDYFILE"
-    caddy reload --config "$CADDYFILE" || true
+if systemctl is-active --quiet caddy; then
+  if ! caddy reload --config "$CADDYFILE"; then
+    pp_err "caddy reload failed; rolling back to previous config"
+    [ -f "$PREVIOUS" ] && cp "$PREVIOUS" "$CADDYFILE"
+    caddy reload --config "$CADDYFILE" 2>/dev/null || systemctl restart caddy 2>/dev/null || true
+    pp_write_state sync "{\"ts\":\"$(date -Is)\",\"ok\":false,\"stage\":\"reload\",\"error\":\"caddy reload failed\"}"
+    exit 1
   fi
-  exit 1
+  pp_ok "Caddy config applied and reloaded"
+else
+  pp_info "caddy not running; starting it with the new config"
+  if ! systemctl start caddy; then
+    pp_err "caddy failed to start with the new config; rolling back"
+    [ -f "$PREVIOUS" ] && cp "$PREVIOUS" "$CADDYFILE"
+    pp_write_state sync "{\"ts\":\"$(date -Is)\",\"ok\":false,\"stage\":\"start\",\"error\":\"systemctl start caddy failed\"}"
+    exit 1
+  fi
+  pp_ok "Caddy started"
 fi
 
 git add -A && git commit -m "sync applied $(date -Iseconds)" -q 2>/dev/null || true
+
+# ── Record result for the status collector ───────────────────
+pp_write_state sync "{\"ts\":\"$(date -Is)\",\"ok\":true,\"stage\":\"done\",\"host\":\"${PVE_HOST}\",\"domain\":\"${DOMAIN}\",\"error\":\"\"}"
+pp_ok "sync completed"
 
 # ── Certificate expiry alerting (best-effort, never fails the sync) ──
 # Reads managed certs from Caddy's localhost admin API and warns via

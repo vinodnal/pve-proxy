@@ -294,6 +294,12 @@ printf 'DOMAIN=%s\nEMAIL=%s\nBASIC_AUTH_HASH=%s\n' \
 pct push "$CTID" "$TMPCF" /etc/pve-proxy/proxy.env
 msg_ok "Configuration written"
 
+# Normalize env files (strip CR, drop malformed empty-key lines) so systemd
+# EnvironmentFile and the sync guards can always parse them.
+pct exec "$CTID" -- bash -c 'for f in /etc/pve-proxy/*.env; do
+  sed -i -e "s/\r$//" -e "/^[[:space:]]*=[[:space:]]*$/d" -e "/^[[:space:]]*$/d" "$f"
+done'
+
 # Guard: verify the secrets actually landed inside the container (non-empty).
 pct exec "$CTID" -- bash -c 'grep -q "^CLOUDFLARE_API_TOKEN=." /etc/pve-proxy/cloudflare.env &&
   grep -q "^PVE_TOKEN_SECRET=." /etc/pve-proxy/pve-token.env &&
@@ -368,10 +374,17 @@ fi
 
 # ── First sync + start Caddy ─────────────────────────────────
 msg_info "Running first sync"
-pct exec "$CTID" -- /usr/local/bin/pve-proxy-sync.sh \
-  || msg_warn "first sync failed; run '/usr/local/bin/pve-proxy-sync.sh' manually"
-msg_info "Starting Caddy"
-pct exec "$CTID" -- systemctl start caddy 2>/dev/null || true
+if pct exec "$CTID" -- /usr/local/bin/pve-proxy-sync.sh; then
+  msg_ok "First sync succeeded"
+else
+  msg_warn "first sync failed. Inspect the CT:"
+  msg_warn "  pct exec $CTID -- /usr/local/bin/pve-proxy-status.sh"
+  msg_warn "  pct exec $CTID -- tail -n 40 /var/log/pve-proxy/pve-proxy.log"
+fi
+# The sync already starts Caddy on success; only start it here if a validated
+# Caddyfile exists and the service is still down (never start with no config).
+pct exec "$CTID" -- sh -lc 'systemctl is-active --quiet caddy || { [ -f /etc/caddy/Caddyfile ] && systemctl start caddy; }' \
+  || msg_warn "Caddy not started (no valid /etc/caddy/Caddyfile yet)"
 
 echo ""
 echo -e "${GN}═══════════════════════════════════════════════════${CL}"
@@ -387,6 +400,7 @@ else
   echo -e "  ${YW}2.${CL} tailscale up --hostname=${HN} --advertise-tags=tag:pve-proxy"
   echo -e "  ${YW}3.${CL} tailscale ip -4   (note the IP)"
   echo -e "  ${YW}4.${CL} config.sh -> 9   (create the Cloudflare DNS record)"
-  echo -e "  (first sync + Caddy already ran)"
 fi
+echo -e " Inspect state anytime: ${GN}pct enter ${CTID} && pve-proxy-status.sh${CL}"
+echo -e " Logs:                  /var/log/pve-proxy/pve-proxy.log"
 echo ""

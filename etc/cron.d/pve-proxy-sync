@@ -1,1 +1,7 @@
-*/15 * * * * root /usr/local/bin/pve-proxy-sync.sh >> /var/log/pve-proxy-sync.log 2>&1
+# pve-proxy sync schedule. Runs the renderer/auto-sync every 15 minutes.
+#
+# PP_QUIET=1 keeps cron output empty (no mail spam): all structured logging goes
+# to the central log (/var/log/pve-proxy/pve-proxy.log) and journald. The
+# redirect below only catches unexpected stray stderr (e.g. caddy subprocess).
+# Inspect state with:  pve-proxy-status.sh
+*/15 * * * * root PP_QUIET=1 /usr/local/bin/pve-proxy-sync.sh >> /var/log/pve-proxy/pve-proxy.log 2>&1
