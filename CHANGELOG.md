@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-09-02
+
+### Fixed
+
+- `config.sh` / `update.sh` / `pve-proxy-*` were "command not found" inside the
+  container's interactive (`pct enter`) shell: that shell is non-login, never
+  reads `/etc/profile`, and its `PATH` omitted `/usr/local/bin` (where the tools
+  are installed). The installer now appends a `PATH` guard to `/etc/bash.bashrc`
+  so the admin commands run by bare name.
+- `update.sh` no longer hangs on an interactive prompt (e.g. git credentials /
+  repo URL): it runs git non-interactively (`GIT_TERMINAL_PROMPT=0`) and, if no
+  `origin` is configured, defaults to the canonical repo URL and degrades to
+  local files when offline.
+
 ## [1.2.1] - 2026-09-02
 
 ### Fixed

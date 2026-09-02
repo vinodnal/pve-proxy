@@ -145,6 +145,15 @@ systemctl daemon-reload
 systemctl enable caddy >/dev/null 2>&1
 msg_ok "Project files deployed"
 
+# Ensure the /usr/local/bin tools (config.sh, update.sh, pve-proxy-*) are on the
+# interactive PATH. Login shells get /usr/local/bin via /etc/profile, but
+# non-login interactive shells (pct enter) never read /etc/profile, so add it to
+# /etc/bash.bashrc to make the admin commands runnable by bare name.
+if ! grep -qs '/usr/local/bin' /etc/bash.bashrc 2>/dev/null; then
+  printf '\n# pve-proxy: expose /usr/local/bin tools on interactive shells\ncase ":$PATH:" in *":/usr/local/bin:"*) ;; *) export PATH="/usr/local/bin:$PATH" ;; esac\n' \
+    >> /etc/bash.bashrc
+fi
+
 # Seed empty component state so pve-proxy-status.sh works immediately.
 mkdir -p /var/lib/pve-proxy/state
 printf '{"ts":"","ok":false,"stage":"install","error":"sync not run yet"}\n' \

@@ -36,15 +36,21 @@ fi
 # not block the update. /root/pve-proxy is a pure source mirror, so reset is safe.
 msg_info "Pulling latest changes"
 cd "$REPO_DIR"
-if git remote 2>/dev/null | grep -q origin; then
-  if git fetch origin master >/dev/null 2>&1; then
-    git reset --hard origin/master
-    msg_ok "Repository updated (origin/master)"
-  else
-    msg_warn "Could not reach origin (offline?); continuing with local files"
-  fi
+# Never prompt interactively (e.g. for git credentials / repo URL); fail fast
+# and fall back to local files instead of hanging on a prompt.
+export GIT_TERMINAL_PROMPT=0
+export GIT_ASKPASS=/bin/true
+# Canonical repo used as a fallback so update never asks for a URL.
+REPO_URL_DEFAULT="https://github.com/vinodnal/pve-proxy"
+if ! git remote 2>/dev/null | grep -q origin; then
+  git remote add origin "$REPO_URL_DEFAULT" >/dev/null 2>&1 || true
+  msg_warn "No git origin set; defaulting to ${REPO_URL_DEFAULT}"
+fi
+if git fetch origin master >/dev/null 2>&1; then
+  git reset --hard origin/master
+  msg_ok "Repository updated (origin/master)"
 else
-  msg_warn "No git origin configured; continuing with local files"
+  msg_warn "Could not reach origin (offline?); continuing with local files"
 fi
 msg_ok "Repository ready"
 
