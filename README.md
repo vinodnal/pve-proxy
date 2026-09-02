@@ -162,10 +162,33 @@ updates Python deps, and reloads Caddy.
 Inside the container:
 
 ```bash
-bash /root/pve-proxy/config.sh
+config.sh        # bare name works (it is on PATH)
 ```
 
-Interactive menu to update tokens, PVE host, domain/email, edit services, trigger a sync, or show status.
+The interactive menu covers secrets and services plus **Tailscale** and **Advanced**
+options:
+
+```
+ 1) Cloudflare API token          8) Basic auth hash
+ 2) PVE API token                 9) Cloudflare DNS record
+ 3) PVE host address             10) Tailscale
+ 4) Domain / ACME email          11) Advanced options
+ 5) Edit services.yaml            0) Exit
+ 6) Re-sync now
+ 7) Show status
+```
+
+- **10) Tailscale** — status/IP, join/authenticate, set node name & tags, route via
+  an exit node, or leave the tailnet.
+- **11) Advanced** — settings stored in `/etc/pve-proxy/settings.env`:
+  - sync schedule (cron minutes, rewrites `/etc/cron.d/pve-proxy-sync`),
+  - PVE API TLS verification on/off,
+  - extra trusted client subnets beyond Tailscale (`EXTRA_TRUSTED_SUBNETS`,
+    added to Caddy's `remote_ip` allow list),
+  - ACME CA endpoint (default Let's Encrypt production; staging for testing),
+  - show current settings.
+
+Advanced settings are picked up by `pve-proxy-sync.sh` on the next sync/render.
 
 ## Operations: status & logs
 

@@ -1,6 +1,8 @@
 {
     admin localhost:2019
     email {{ email }}
+{% if acme_ca %}    acme_ca {{ acme_ca }}
+{% endif %}
 }
 
 *.{{ domain }} {
@@ -8,11 +10,11 @@
         dns cloudflare {env.CLOUDFLARE_API_TOKEN}
     }
 
-    # Restrict to Tailscale's CGNAT range only. RFC1918 LAN traffic is NOT
-    # treated as trusted here: everything not originating from 100.64.0.0/10
+    # Trusted clients: Tailscale CGNAT (100.64.0.0/10) plus any extra subnets
+    # configured via config.sh -> Advanced -> trusted subnets. Everything else
     # is rejected at the Caddy layer (defense in depth behind the tailnet ACL).
-    @not-tailnet not remote_ip 100.64.0.0/10
-    respond @not-tailnet 403
+    @not-trusted not remote_ip {{ allowed_cidrs | default("100.64.0.0/10") }}
+    respond @not-trusted 403
 
     # ---- BEGIN GENERATED BLOCKS (managed by pve-proxy-sync, do not hand-edit) ----
 {% for svc in services %}

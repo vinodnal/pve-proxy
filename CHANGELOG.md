@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-02
+
+### Added
+
+- **Tailscale menu** in `config.sh` (option 10): status/IP, join/authenticate,
+  set node name & tags, route via an exit node, leave the tailnet.
+- **Advanced menu** in `config.sh` (option 11): a `settings.env` layer with
+  sync schedule (rewrites the cron entry), PVE API TLS verification toggle,
+  extra trusted client subnets (beyond Tailscale), and an optional ACME CA
+  endpoint. `pve-proxy-sync.sh`/`render_caddyfile.py` read these and render them
+  into the Caddyfile (defaults keep output identical when unset).
+
 ## [1.2.2] - 2026-09-02
 
 ### Fixed

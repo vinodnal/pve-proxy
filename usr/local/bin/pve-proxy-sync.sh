@@ -51,6 +51,11 @@ PVE_HOST=$(get_env "$WORKDIR/pve-token.env" PVE_HOST)
 DOMAIN=$(get_env "$WORKDIR/proxy.env" DOMAIN)
 EMAIL=$(get_env "$WORKDIR/proxy.env" EMAIL)
 BASIC_AUTH_HASH=$(get_env "$WORKDIR/proxy.env" BASIC_AUTH_HASH)
+# Advanced settings (config.sh -> Advanced). settings.env holds no secrets, but
+# read it the same safe way for consistency.
+EXTRA_TRUSTED_SUBNETS=$(get_env "$WORKDIR/settings.env" EXTRA_TRUSTED_SUBNETS)
+ACME_CA=$(get_env "$WORKDIR/settings.env" ACME_CA)
+PVE_SKIP_TLS_VERIFY=$(get_env "$WORKDIR/settings.env" PVE_SKIP_TLS_VERIFY)
 
 # ── Guards: required inputs must exist before we do anything ──
 for f in "$WORKDIR/pve-token.env" "$WORKDIR/proxy.env" "$TEMPLATE" "$SERVICES"; do
@@ -106,7 +111,10 @@ git add -A && git commit -m "pre-sync snapshot $(date -Iseconds)" --allow-empty 
 # disabling verification with -k. Only falls back to -k if the CA is missing,
 # and logs a prominent warning when it does.
 CURL_OPTS=(-H "Authorization: PVEAPIToken=${PVE_TOKEN_ID}=${PVE_TOKEN_SECRET}")
-if [ -f "$CA_FILE" ]; then
+if [ "${PVE_SKIP_TLS_VERIFY:-0}" = "1" ]; then
+  pp_warn "PVE TLS verification disabled by settings (PVE_SKIP_TLS_VERIFY=1); using -k"
+  CURL_OPTS+=(-k)
+elif [ -f "$CA_FILE" ]; then
   CURL_OPTS+=(--cacert "$CA_FILE")
 else
   pp_warn "PVE CA not found at $CA_FILE; using -k (TLS NOT verified)"
@@ -138,6 +146,8 @@ pp_info "Rendering Caddyfile from template + live data"
   --domain "$DOMAIN" \
   --email "$EMAIL" \
   --basic-auth-hash "$BASIC_AUTH_HASH" \
+  ${EXTRA_TRUSTED_SUBNETS:+--extra-subnets "$EXTRA_TRUSTED_SUBNETS"} \
+  ${ACME_CA:+--acme-ca "$ACME_CA"} \
   --out "$STAGED"
 
 # Validate before touching live config

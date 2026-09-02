@@ -35,7 +35,8 @@ def load_services(path: str) -> dict:
 
 
 def render(template_path: str, services: list[dict], output_path: str,
-           domain: str, email: str):
+           domain: str, email: str, allowed_cidrs: str = "100.64.0.0/10",
+           acme_ca: str = ""):
     template_dir = str(Path(template_path).parent)
     template_name = Path(template_path).name
     env = Environment(
@@ -45,7 +46,8 @@ def render(template_path: str, services: list[dict], output_path: str,
         lstrip_blocks=True,
     )
     template = env.get_template(template_name)
-    rendered = template.render(services=services, domain=domain, email=email)
+    rendered = template.render(services=services, domain=domain, email=email,
+                               allowed_cidrs=allowed_cidrs, acme_ca=acme_ca)
     with open(output_path, "w") as f:
         f.write(rendered)
 
@@ -59,6 +61,11 @@ def main():
     parser.add_argument("--email", required=True, help="ACME contact email")
     parser.add_argument("--basic-auth-hash", default="",
                         help="bcrypt hash (caddy hash-password output) for services marked auth: basic")
+    parser.add_argument("--extra-subnets", default="",
+                        help="Comma/space-separated extra client CIDRs to trust in addition to "
+                             "Tailscale CGNAT (100.64.0.0/10)")
+    parser.add_argument("--acme-ca", default="",
+                        help="Optional ACME directory URL (default: Let's Encrypt production)")
     parser.add_argument("--out", required=True, help="Path to write rendered Caddyfile")
     args = parser.parse_args()
 
@@ -85,6 +92,21 @@ def main():
         sys.exit(1)
 
     basic_auth_hash = (args.basic_auth_hash or "").strip()
+
+    # Trusted-client CIDR set: Tailscale CGNAT is always trusted; the operator
+    # may add extra subnets via config.sh -> Advanced -> trusted subnets.
+    trusted = ["100.64.0.0/10"]
+    for part in re.split(r"[,\s]+", args.extra_subnets.strip()):
+        if not part:
+            continue
+        try:
+            ipaddress.ip_network(part)
+        except ValueError:
+            print(f"error: --extra-subnets has an invalid CIDR '{part}'", file=sys.stderr)
+            sys.exit(2)
+        trusted.append(part)
+    allowed_cidrs = " ".join(trusted)
+    acme_ca = (args.acme_ca or "").strip()
 
     # Build service list: only include services whose container is running.
     # Every field that is later interpolated into the Caddyfile is validated
@@ -129,7 +151,7 @@ def main():
     if not services:
         print("warn: no services rendered (no matching running containers); "
               "Caddyfile will only serve the base host", file=sys.stderr)
-    render(args.template, services, args.out, domain, email)
+    render(args.template, services, args.out, domain, email, allowed_cidrs, acme_ca)
     print(f"Rendered {len(services)} services to {args.out}")
 
 
