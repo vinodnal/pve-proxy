@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-09-02
+
+### Fixed
+
+- Tailscale now works in the LXC container: `create-lxc.sh` bind-mounts the host
+  `/dev/net/tun` in and grants the device cgroup rule, so `tailscaled` can start
+  in an unprivileged container (previously it crashed with
+  `open /dev/net/tun: no such file or directory`). Applied before first start.
+
 ## [1.3.0] - 2026-09-02
 
 ### Added

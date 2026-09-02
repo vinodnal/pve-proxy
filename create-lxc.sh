@@ -232,6 +232,18 @@ pct create "$CTID" "local:vztmpl/$TEMPLATE" \
 pct config "$CTID" >/dev/null 2>&1 || msg_error "CT $CTID was not created"
 msg_ok "Created CT $CTID"
 
+# Tailscale needs a TUN device. Unprivileged containers must have the host TUN
+# bind-mounted in and the device cgroup rule granted (applied before first
+# start, otherwise tailscaled crashes with "open /dev/net/tun: no such file").
+CT_CFG="/etc/pve/lxc/${CTID}.conf"
+if ! grep -qs "dev/net/tun" "$CT_CFG"; then
+  cat >> "$CT_CFG" <<EOF
+
+lxc.mount.entry: /dev/net/tun dev/net/tun none bind,create=file
+lxc.cgroup2.devices.allow: c 10:200 rwm
+EOF
+fi
+
 msg_info "Starting CT $CTID"
 pct start "$CTID"
 # Guard: wait for the container to report running.
