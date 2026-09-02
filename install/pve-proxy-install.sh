@@ -65,7 +65,7 @@ if ! go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.7 >/tmp/xcaddy-ins
   msg_error "go install xcaddy failed"
 fi
 # Build straight to the final path (no mv, no cwd ambiguity).
-if ! xcaddy build v2.10.2 -output /usr/local/bin/caddy \
+if ! xcaddy build v2.10.2 --output /usr/local/bin/caddy \
      --with github.com/caddy-dns/cloudflare@v0.2.4 >/tmp/xcaddy-build.log 2>&1; then
   echo "--- xcaddy build failed; tail of log:" >&2
   tail -30 /tmp/xcaddy-build.log >&2
