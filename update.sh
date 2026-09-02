@@ -69,9 +69,9 @@ cp "$REPO_DIR/etc/systemd/system/caddy.service"    /etc/systemd/system/caddy.ser
 cp "$REPO_DIR/etc/cron.d/pve-proxy-sync"           /etc/cron.d/pve-proxy-sync
 cp "$REPO_DIR/etc/logrotate.d/pve-proxy"           /etc/logrotate.d/pve-proxy
 chmod 0644 /etc/cron.d/pve-proxy-sync /etc/logrotate.d/pve-proxy
-cp "$REPO_DIR/install/pve-proxy-install.sh"        /root/pve-proxy/install/pve-proxy-install.sh
-cp "$REPO_DIR/config.sh"                            /root/pve-proxy/config.sh
-cp "$REPO_DIR/update.sh"                            /root/pve-proxy/update.sh
+# Note: no copies back into $REPO_DIR (/root/pve-proxy) are made here — this
+# script IS deployed from $REPO_DIR and git keeps those files current. Copying
+# them onto themselves would abort under `set -e` ("same file").
 msg_ok "Files deployed"
 
 msg_info "Updating Python dependencies"

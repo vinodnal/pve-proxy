@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-09-02
+
+### Fixed
+
+- `update.sh` no longer aborts when run from its own repo dir: it tried to `cp`
+  files onto themselves under `/root/pve-proxy` ("same file"), which failed under
+  `set -e`. Removed the redundant self-copies (git keeps `/root/pve-proxy` current).
+- `config.sh` and `update.sh` are now reachable as bare commands (symlinked into
+  `/usr/local/bin`, which is on `PATH` in the container) instead of requiring
+  `bash /root/pve-proxy/<name>.sh`.
+
 ## [1.2.0] - 2026-09-02
 
 ### Added
