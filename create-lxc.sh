@@ -294,6 +294,13 @@ printf 'DOMAIN=%s\nEMAIL=%s\nBASIC_AUTH_HASH=%s\n' \
 pct push "$CTID" "$TMPCF" /etc/pve-proxy/proxy.env
 msg_ok "Configuration written"
 
+# Guard: verify the secrets actually landed inside the container (non-empty).
+pct exec "$CTID" -- bash -c 'grep -q "^CLOUDFLARE_API_TOKEN=." /etc/pve-proxy/cloudflare.env &&
+  grep -q "^PVE_TOKEN_SECRET=." /etc/pve-proxy/pve-token.env &&
+  grep -q "^DOMAIN=." /etc/pve-proxy/proxy.env' \
+  || msg_error "Secrets were not written correctly into the container"
+msg_ok "Secret files verified in CT"
+
 # ── Push PVE cluster CA so sync verifies API TLS (no -k) ──────
 # Path differs across PVE versions; try the common locations.
 msg_info "Pushing PVE cluster CA"

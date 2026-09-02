@@ -77,8 +77,10 @@ function prompt_with_default() {
 function prompt_secret() {
   local prompt="$1" input
   read -r -s -p "  ${prompt}: " input </dev/tty
-  echo
-  echo "$input"
+  # Newline after the hidden input goes to stderr so it is never captured
+  # by $(...) (a leading newline used to corrupt the stored value).
+  echo >&2
+  printf '%s' "$input"
 }
 
 # ── Container setup steps (run after pct create) ──────────────
