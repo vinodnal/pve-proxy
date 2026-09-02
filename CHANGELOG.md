@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-09-02
+
+### Fixed
+
+- `pve-proxy-dns.sh` now resolves the real Cloudflare zone by walking up parent
+  domains. A base domain that is a subdomain of the registered zone (e.g.
+  `pve.example.com` lives in the `example.com` zone) previously failed with
+  "could not resolve zone"; it now creates the wildcard record in the correct
+  parent zone.
+
 ## [1.3.1] - 2026-09-02
 
 ### Fixed

@@ -47,15 +47,29 @@ d = json.load(sys.stdin)
 print(eval(sys.argv[1], {"d": d}))' "$1" 2>/dev/null || true
 }
 
-# Resolve the zone id for the domain (needs Zone:Read).
+# Resolve the actual Cloudflare zone by walking up parent domains. The base
+# domain is often a subdomain of the registered zone (e.g. pve.example.com lives
+# in the example.com zone), so an exact-name lookup would find nothing.
+# Needs Zone:Read on the zone.
 pp_info "Resolving Cloudflare zone for ${DOMAIN}"
-ZONE=$(curl -s --connect-timeout 10 --max-time 20 "${AUTH[@]}" "https://api.cloudflare.com/client/v4/zones?name=$DOMAIN" \
-  | json_get 'd["result"][0]["id"] if d.get("success") and d.get("result") else ""')
+ZONE=""
+search="$DOMAIN"
+while [ -n "$search" ]; do
+  z=$(curl -s --connect-timeout 10 --max-time 20 "${AUTH[@]}" \
+        "https://api.cloudflare.com/client/v4/zones?name=$search" \
+        | json_get 'd["result"][0]["id"] if d.get("success") and d.get("result") else ""')
+  if [ -n "$z" ]; then ZONE="$z"; ZONE_NAME="$search"; break; fi
+  case "$search" in
+    *.*) search="${search#*.}" ;;
+    *)   break ;;
+  esac
+done
 if [ -z "$ZONE" ]; then
-  pp_err "could not resolve zone for $DOMAIN (token needs Zone:Read + Zone:DNS:Edit)"
+  pp_err "could not resolve a Cloudflare zone for $DOMAIN (checked '$DOMAIN' and its parents; token needs Zone:Read + Zone:DNS:Edit)"
   pp_write_state dns "{\"ts\":\"$(date -Is)\",\"ok\":false,\"action\":\"zone-resolve\",\"domain\":\"${DOMAIN}\"}"
   exit 1
 fi
+pp_ok "using zone ${ZONE_NAME} for ${DOMAIN}"
 
 # Update the existing record if present, otherwise create it.
 REC=$(curl -s --connect-timeout 10 --max-time 20 "${AUTH[@]}" "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?type=A&name=$NAME" \
