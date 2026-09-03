@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.4.1] - 2026-09-03
+
+### Fixed
+
+- `config.sh` and `update.sh` are now tracked as executable. They are symlinked
+  into `/usr/local/bin` so they run by bare name, but being committed with mode
+  `0644`, `update.sh`'s `git reset --hard` stripped the exec bit and bare
+  invocation failed with `Permission denied`. They are now `0755`.
+
 ## [1.4.0] - 2026-09-03
 
 ### Added
