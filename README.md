@@ -152,6 +152,37 @@ can never break a sync.
 > be set by hand. The container IP is resolved automatically from the PVE API
 > whenever you omit `ip:`.
 
+### Raw TCP services (SSH, RDP, databases, ...)
+
+pve-proxy can also forward non-HTTP protocols. Mark an entry `mode: tcp` and give
+it a dedicated public `listen_port`. Because raw TCP carries no hostname, routing
+is **by port** — give each TCP service its own `listen_port` and connect to
+`<domain>:<listen_port>` (the subdomain label is cosmetic for TCP):
+
+```yaml
+# SSH into the nexterm container via pve.salahxg.com:2222
+nexterm-ssh: { node: pve1, container: nexterm, port: 22, mode: tcp, listen_port: 2222 }
+```
+
+- The key is a **label**, not the container name (routing is by `listen_port`, so the
+  subdomain label is cosmetic). Add `container: <name>` to say which running container
+  it fronts — that container is used for the running-container check and IP
+  auto-discovery. Omit `container:` when the key already equals the container name,
+  and `ip:` overrides discovery as usual.
+- Requires the Caddy build with **caddy-l4**. Code updates alone (`update.sh`) deploy
+the new scripts/template but do **not** rebuild the binary — run
+`bash /root/pve-proxy/setup.sh` once afterwards (idempotent) so the installer
+rebuilds Caddy with caddy-l4. The installer verifies both modules after a build.
+- The sync refuses to render TCP services with a clear message if the module is
+  missing, so a forgotten rebuild can never ship a broken config.
+- `listen_port` must be unique and must not collide with the proxy's own services
+  (`80`/`443`/`2019` are rejected; the proxy's own sshd usually owns `:22`, so
+  prefer a high port).
+- `port` is the container-side port (e.g. `22`); `listen_port` is the public proxy
+  port. Container-IP auto-discovery works exactly as it does for HTTP services.
+- TCP forwards inherit the same Tailscale-only trust as HTTP: connections are
+  dropped unless they come from `100.64.0.0/10` (plus your extra trusted subnets).
+
 ## Update
 
 Inside the container:

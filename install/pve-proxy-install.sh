@@ -74,22 +74,28 @@ if ! command -v xcaddy >/dev/null 2>&1; then
   fi
 fi
 # Skip the rebuild if a good caddy already exists (resumable installs).
-if /usr/local/bin/caddy list-modules 2>/dev/null | grep -q cloudflare; then
-  msg_ok "Caddy already built (cloudflare module present)"
+# Require BOTH modules: an older install may already have cloudflare but predate
+# the layer4 (raw TCP) support and must be rebuilt to pick it up.
+if /usr/local/bin/caddy list-modules 2>/dev/null | grep -q cloudflare \
+   && /usr/local/bin/caddy list-modules 2>/dev/null | grep -qE '^layer4(\.|$)'; then
+  msg_ok "Caddy already built (cloudflare + layer4 modules present)"
 else
   # Build straight to the final path (no mv, no cwd ambiguity).
   # NOTE: v2.11.4 is the minimum that works with cloudflare plugin v0.2.4
   # (older 2.10.2 panics in the TLS module loader at runtime).
+  # caddy-l4 v0.1.2 (pinned) adds the layer4 app for `mode: tcp` services.
   if ! xcaddy build v2.11.4 --output /usr/local/bin/caddy \
-       --with github.com/caddy-dns/cloudflare@v0.2.4 >/tmp/xcaddy-build.log 2>&1; then
+       --with github.com/caddy-dns/cloudflare@v0.2.4 \
+       --with github.com/mholt/caddy-l4@v0.1.2 >/tmp/xcaddy-build.log 2>&1; then
     echo "--- xcaddy build failed; tail of log:" >&2
     tail -30 /tmp/xcaddy-build.log >&2
     msg_error "xcaddy build failed"
   fi
-  if /usr/local/bin/caddy list-modules 2>/dev/null | grep -q cloudflare; then
-    msg_ok "Caddy built (cloudflare module verified)"
+  if /usr/local/bin/caddy list-modules 2>/dev/null | grep -q cloudflare \
+     && /usr/local/bin/caddy list-modules 2>/dev/null | grep -qE '^layer4(\.|$)'; then
+    msg_ok "Caddy built (cloudflare + layer4 modules verified)"
   else
-    msg_error "Caddy build failed: cloudflare module missing"
+    msg_error "Caddy build failed: cloudflare/layer4 module missing"
   fi
   # Reclaim the Go module/build caches (~2 GB) — not needed at runtime.
   go clean -cache -modcache 2>/dev/null || true

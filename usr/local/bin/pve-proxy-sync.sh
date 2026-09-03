@@ -81,6 +81,25 @@ pp_require_cmd caddy "Caddy binary (cloudflare build)"
 if ! /usr/local/bin/caddy list-modules 2>/dev/null | grep -q cloudflare; then
   guard_fail "caddy binary is missing the cloudflare DNS module; reinstall with the cloudflare build"
 fi
+# mode: tcp entries need the caddy-l4 (layer4) module. Fail fast with a clear
+# remediation instead of letting `caddy validate` reject the rendered config.
+# (If the venv/python can't read services.yaml the check is skipped and the
+# regular render + validate path still protects the live config.)
+if /opt/pve-proxy/.venv/bin/python - "$SERVICES" 2>/dev/null <<'PY' | grep -q '^yes$'
+import sys
+import yaml
+svc = yaml.safe_load(open(sys.argv[1])) or {}
+if isinstance(svc, dict) and any(
+    isinstance(c, dict) and str(c.get("mode", "") or "").strip().lower() == "tcp"
+    for c in svc.values()
+):
+    print("yes")
+PY
+then
+  if ! /usr/local/bin/caddy list-modules 2>/dev/null | grep -qE '^layer4(\.|$)'; then
+    guard_fail "services.yaml defines TCP service(s) (mode: tcp) but this Caddy build lacks the layer4 module; run update.sh or the installer to rebuild Caddy with caddy-l4"
+  fi
+fi
 
 # Export the Cloudflare token so `caddy validate/reload` (which run as root, not
 # as the caddy service user) can expand {env.CLOUDFLARE_API_TOKEN} in the config.
@@ -168,8 +187,11 @@ svc = yaml.safe_load(open("services.yaml")) or {}
 with open(sys.argv[1], "w") as out:
     if isinstance(svc, dict):
         for name, conf in svc.items():
+            # Discover by the container that actually backs the service: for TCP
+            # labels that is `container:` (defaults to the key == container name).
             if not (isinstance(conf, dict) and str(conf.get("ip", "")).strip()):
-                out.write(f"{name}\n")
+                container = str(conf.get("container", "") or "").strip() or name
+                out.write(f"{container}\n")
 PY
 # Fetch interfaces only for containers we actually need (running + in needed.list)
 while IFS=$'\t' read -r name node vmid; do

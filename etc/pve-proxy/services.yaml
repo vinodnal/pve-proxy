@@ -7,15 +7,44 @@
 #         the container's live IPv4 even for DHCP containers. Pin `ip:` only to
 #         override discovery or force a specific address.
 #   port: service port inside the container (always required — PVE can't know it)
-#   auth: optional "basic" to enable HTTP basic auth (username: admin).
+#   mode: OPTIONAL. Omit it (or set "http") for the default behaviour: the
+#         service becomes https://<name>.<domain> (HTTP reverse proxy on :443).
+#         Set "tcp" to forward RAW TCP (SSH, RDP, databases, ...) instead — see
+#         the TCP notes below.
+#   listen_port: REQUIRED only when mode: tcp. The PUBLIC port on the proxy that
+#         forwards to this service's `port` (e.g. 2222). Choose a unique high port
+#         per TCP service.
+#   container: OPTIONAL, mode: tcp only. Which running PVE container this label
+#         fronts; used for the running-container check and IP auto-discovery.
+#         Omit it when the key already is the container name.
+#   auth: optional "basic" to enable HTTP basic auth (username: admin) — HTTP
+#         services only; ignored on mode: tcp.
 #         The bcrypt hash comes from BASIC_AUTH_HASH in /etc/pve-proxy/proxy.env
 #         (set via install or `config.sh` -> 8). If `auth: basic` is set but no
 #         hash is configured, the service is rendered WITHOUT auth and a warning
 #         is logged, so a missing hash can never break a sync.
 #
-# Uncomment/add one line per service. Only `port` is required; the container IP
-# is resolved automatically from PVE whenever `ip:` is left out.
+# TCP notes (mode: tcp): raw TCP has NO hostname, so routing is by PORT, not by
+# subdomain — `nexterm.pve.<domain>:2222` and `pve.<domain>:2222` are the same
+# socket. Each TCP service therefore needs its own `listen_port`, and clients
+# connect to <domain>:<listen_port>. The key is just a label for TCP: target a
+# container with `container: <name>` (defaults to the key, so keep the key equal
+# to a container name to omit it) — that container supplies the running check and
+# auto-discovered IP; `ip:` still overrides. `listen_port` must not collide with
+# another
+# TCP service, with Caddy's own ports (80/443/2019), or with a port the proxy
+# already uses (its own sshd usually owns :22 — prefer a high port). TCP services
+# need the Caddy build with the caddy-l4 module: run `bash /root/pve-proxy/setup.sh`
+# once to rebuild the binary (update.sh alone only deploys code).
 #
-# myapp:   { node: pve1, port: 8080 }                        # ip auto-discovered
-# myapp2:  { node: pve1, port: 3000, auth: basic }           # ip auto-discovered + auth
-# legacy:  { node: pve2, port: 8080, ip: 192.168.0.20 }      # ip pinned (optional override)
+# Uncomment/add one line per service. HTTP services need only `name` + `port`;
+# the container IP is resolved automatically from PVE whenever `ip:` is left out
+# (this works for mode: tcp too).
+#
+# myapp:   { node: pve1, port: 8080 }                              # HTTP, ip auto-discovered
+# myapp2:  { node: pve1, port: 3000, auth: basic }                 # HTTP + basic auth
+# legacy:  { node: pve2, port: 8080, ip: 192.168.0.20 }            # HTTP, ip pinned
+# nexterm: { node: pve1, port: 6989 }                              # HTTP web app
+#                                                                   # TCP examples (mode: tcp):
+# ct-ssh:  { node: pve1, container: nexterm, port: 22, mode: tcp, listen_port: 2222 }  # ssh -p 2222 pve.<domain>
+# ct-rdp:  { node: pve1, port: 3389, mode: tcp, listen_port: 3389 } # key == container name, ip auto-discovered

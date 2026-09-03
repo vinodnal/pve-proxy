@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.5.0] - 2026-09-03
+
+### Added
+
+- **Raw TCP forwarding via caddy-l4.** `services.yaml` entries can now set
+  `mode: tcp` plus a dedicated public `listen_port` to proxy non-HTTP protocols
+  (SSH, RDP, databases, ...) on their own port. Caddy is rebuilt with
+  `github.com/mholt/caddy-l4@v0.1.2` (a fresh install picks it up; an existing
+  container rebuilds by re-running `bash /root/pve-proxy/setup.sh` — `update.sh`
+  only deploys code). The sync renders a `layer4` block that keeps the same
+  Tailscale-only trust model (non-trusted clients are dropped at L4), and fails
+  fast with a clear message if TCP services are configured against a Caddy build
+  that lacks the module.
+- **TCP keys are labels.** Because raw TCP routes by port, a `mode: tcp` key is
+  just a label — add `container: <name>` to point it at a specific running
+  container (used for the running-container check and IP auto-discovery), or
+  keep the key equal to the container name. `ip:` overrides discovery as usual.
+  This lets one container expose several TCP services (e.g. both SSH and RDP).
+
 ## [1.4.1] - 2026-09-03
 
 ### Fixed

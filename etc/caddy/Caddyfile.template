@@ -3,6 +3,25 @@
     email {{ email }}
 {% if acme_ca %}    acme_ca {{ acme_ca }}
 {% endif %}
+{% if tcp_services %}
+    # Raw TCP forwards (mode: tcp in services.yaml) via caddy-l4. Routing is by
+    # PORT because raw TCP carries no hostname; each service owns a dedicated
+    # public port. Non-trusted clients are dropped at L4 — same trust model as
+    # the HTTP site below (Tailscale CGNAT + any configured extra subnets).
+    layer4 {
+{% for svc in tcp_services %}
+        :{{ svc.listen_port }} {
+            @{{ svc.name }}_trusted remote_ip {{ allowed_cidrs | default("100.64.0.0/10") }}
+            route @{{ svc.name }}_trusted {
+                proxy {{ svc.ip }}:{{ svc.port }}
+            }
+            route {
+                close
+            }
+        }
+{% endfor %}
+    }
+{% endif %}
 }
 
 *.{{ domain }} {
