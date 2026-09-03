@@ -2,7 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased]
+## [1.4.0] - 2026-09-03
+
+### Added
+
+- **Automatic container-IP discovery.** `pve-proxy-sync.sh` now resolves each
+  service's backend IP from the PVE API (`/nodes/{node}/lxc/{vmid}/interfaces`)
+  instead of requiring it in `services.yaml`. Because that endpoint reports the
+  live address even for DHCP containers, only the service `name` and `port` are
+  required now, and the proxy follows IP changes automatically on every sync. A
+  manual `ip:` in `services.yaml` still overrides discovery. `services.yaml` and
+  the README were updated to the new, simpler schema.
 
 ## [1.3.2] - 2026-09-02
 

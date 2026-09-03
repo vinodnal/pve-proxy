@@ -94,6 +94,10 @@ fi
 if [ ! -f "$WORKDIR/.gitignore" ]; then
   printf '*.env\n*.staged\n*.previous\nlive-containers.json\ncerts.json\npve-ssl-ca.pem\n*.log\n' > "$WORKDIR/.gitignore"
 fi
+# Keep IP-discovery scratch files out of the config git repo (idempotent).
+for pat in 'ifaces/' 'lxc.map' 'needed.list' 'live-ips.json'; do
+  grep -qxF "$pat" "$WORKDIR/.gitignore" || printf '%s\n' "$pat" >> "$WORKDIR/.gitignore"
+done
 if git ls-files 2>/dev/null | grep -Eq '(^|/)(cloudflare|pve-token|proxy)\.env$'; then
   pp_err "SECRET env files are tracked in git history; aborting."
   pp_err "Remediation: remove them from history, e.g."
@@ -137,10 +141,87 @@ if ! /opt/pve-proxy/.venv/bin/python -c 'import json,sys; d=json.load(open("live
 fi
 pp_ok "PVE API response valid"
 
+# ── IP discovery (PVE /interfaces) ──────────────────────────
+# Resolve each service container's IP from its live network interfaces when
+# services.yaml does not pin an explicit `ip:`. PVE's /interfaces endpoint
+# reports real (DHCP or static) addresses even though /config only stores
+# `ip=dhcp`. Result is written to live-ips.json for the renderer.
+pp_info "Discovering container IPs from PVE /interfaces"
+IFDIR="$WORKDIR/ifaces"
+rm -rf "$IFDIR"; mkdir -p "$IFDIR"
+# name -> node vmid for every running LXC (from cluster/resources already fetched)
+/opt/pve-proxy/.venv/bin/python - "$IFDIR/lxc.map" <<'PY'
+import sys
+import json
+with open("live-containers.json") as f:
+    data = json.load(f).get("data", [])
+with open(sys.argv[1], "w") as out:
+    for it in data:
+        if it.get("type") == "lxc" and it.get("status") == "running":
+            out.write(f"{it.get('name')}\t{it.get('node')}\t{it.get('vmid')}\n")
+PY
+# service names in services.yaml that do NOT pin an explicit ip
+/opt/pve-proxy/.venv/bin/python - "$IFDIR/needed.list" <<'PY'
+import sys
+import yaml
+svc = yaml.safe_load(open("services.yaml")) or {}
+with open(sys.argv[1], "w") as out:
+    if isinstance(svc, dict):
+        for name, conf in svc.items():
+            if not (isinstance(conf, dict) and str(conf.get("ip", "")).strip()):
+                out.write(f"{name}\n")
+PY
+# Fetch interfaces only for containers we actually need (running + in needed.list)
+while IFS=$'\t' read -r name node vmid; do
+  [ -n "$name" ] || continue
+  grep -qx "$name" "$IFDIR/needed.list" || continue
+  if ! curl -sS --connect-timeout 10 --max-time 20 "${CURL_OPTS[@]}" \
+       "https://${PVE_HOST}:8006/api2/json/nodes/${node}/lxc/${vmid}/interfaces" \
+       -o "$IFDIR/$name.json"; then
+    pp_warn "could not read interfaces for container '$name' (${node}/${vmid})"
+  fi
+done < "$IFDIR/lxc.map"
+# Extract each container's primary IPv4 and write the name -> IP map
+/opt/pve-proxy/.venv/bin/python - "$WORKDIR/live-ips.json" <<'PY'
+import os
+import sys
+import json
+result = {}
+for fname in os.listdir("ifaces"):
+    if not fname.endswith(".json"):
+        continue
+    name = fname[:-5]
+    try:
+        with open(os.path.join("ifaces", fname)) as f:
+            data = json.load(f).get("data", [])
+    except Exception:
+        continue
+    ip = None
+    for it in data:
+        if str(it.get("name", "")).lower() == "lo":
+            continue
+        for addr in it.get("ip-addresses", []):
+            if addr.get("ip-address-type") == "inet":
+                ip = str(addr.get("ip-address", "")).split("/")[0]
+                break
+        if ip is None:
+            raw = str(it.get("inet", "") or "")
+            if raw:
+                ip = raw.split("/")[0]
+        if ip:
+            break
+    if ip:
+        result[name] = ip
+with open(sys.argv[1], "w") as out:
+    json.dump(result, out, indent=0)
+PY
+chmod 600 "$WORKDIR/live-ips.json"
+
 # Render the Caddyfile from template + live data + services.yaml
 pp_info "Rendering Caddyfile from template + live data"
 /opt/pve-proxy/.venv/bin/python /usr/local/bin/render_caddyfile.py \
   --live live-containers.json \
+  --live-ips "$WORKDIR/live-ips.json" \
   --services "$SERVICES" \
   --template "$TEMPLATE" \
   --domain "$DOMAIN" \

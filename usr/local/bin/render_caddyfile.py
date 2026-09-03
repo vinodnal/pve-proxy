@@ -34,6 +34,23 @@ def load_services(path: str) -> dict:
         return yaml.safe_load(f)
 
 
+def load_ips(path: str) -> dict:
+    """Return service name -> IP map produced by the sync (PVE /interfaces).
+
+    Empty/invalid files yield an empty map so discovery is always optional.
+    """
+    if not path:
+        return {}
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(k): str(v).strip() for k, v in data.items() if str(v).strip()}
+
+
 def render(template_path: str, services: list[dict], output_path: str,
            domain: str, email: str, allowed_cidrs: str = "100.64.0.0/10",
            acme_ca: str = ""):
@@ -55,6 +72,9 @@ def render(template_path: str, services: list[dict], output_path: str,
 def main():
     parser = argparse.ArgumentParser(description="Render Caddyfile from PVE data + services.yaml")
     parser.add_argument("--live", required=True, help="Path to live-containers.json from PVE API")
+    parser.add_argument("--live-ips", default="",
+                        help="Optional name->IP map (auto-discovered from PVE /interfaces). "
+                             "Used for services whose services.yaml entry omits `ip:`.")
     parser.add_argument("--services", required=True, help="Path to services.yaml")
     parser.add_argument("--template", required=True, help="Path to Caddyfile.template")
     parser.add_argument("--domain", required=True, help="Wildcard base domain, e.g. pve.example.com")
@@ -84,6 +104,7 @@ def main():
         sys.exit(2)
 
     live = load_live_containers(args.live)
+    ips = load_ips(args.live_ips)
     svc_map = load_services(args.services)
     if svc_map is None:
         svc_map = {}
@@ -123,7 +144,16 @@ def main():
             print(f"warn: service '{name}' has an invalid name (use lowercase [a-z0-9-]), skipping",
                   file=sys.stderr)
             continue
+        # IP: prefer an explicit `ip:` in services.yaml, else the value the
+        # sync auto-discovered from the PVE /interfaces endpoint (works even for
+        # DHCP containers). A service with neither is skipped, never guessed.
         ip = str(conf.get("ip", "")).strip()
+        if not ip:
+            ip = ips.get(name, "")
+        if not ip:
+            print(f"warn: service '{name}' has no ip and none was discovered from PVE; "
+                  f"set ip: manually in services.yaml or check the container is up", file=sys.stderr)
+            continue
         try:
             ipaddress.ip_address(ip)
         except ValueError:

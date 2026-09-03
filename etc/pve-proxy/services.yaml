@@ -1,18 +1,21 @@
 # Port map for services behind the proxy.
 #
 # Each key is the PVE container name (lowercase). Values:
-#   node: PVE node the container runs on (informational)
-#   ip:   LAN IP of the container (from services.yaml, not auto-discovered)
-#   port: service port inside the container
+#   node: PVE node the container runs on (informational / disambiguation)
+#   ip:   OPTIONAL. LAN IP of the container. When omitted, the sync auto-discovers
+#         it from the PVE API (/nodes/{node}/lxc/{vmid}/interfaces), which reports
+#         the container's live IPv4 even for DHCP containers. Pin `ip:` only to
+#         override discovery or force a specific address.
+#   port: service port inside the container (always required — PVE can't know it)
 #   auth: optional "basic" to enable HTTP basic auth (username: admin).
 #         The bcrypt hash comes from BASIC_AUTH_HASH in /etc/pve-proxy/proxy.env
 #         (set via install or `config.sh` -> 8). If `auth: basic` is set but no
 #         hash is configured, the service is rendered WITHOUT auth and a warning
 #         is logged, so a missing hash can never break a sync.
 #
-# Add one line per service. The PVE API provides names/IPs, but not
-# which port a service listens on — that still has to be set here.
-nexterm:   { node: pve2, ip: 10.0.0.41, port: 7681 }
-casaos:    { node: pve1, ip: 10.0.0.20, port: 80 }
-termix:    { node: pve1, ip: 10.0.0.20, port: 3000, auth: basic }
-snowshare: { node: pve2, ip: 10.0.0.41, port: 80 }
+# Uncomment/add one line per service. Only `port` is required; the container IP
+# is resolved automatically from PVE whenever `ip:` is left out.
+#
+# myapp:   { node: pve1, port: 8080 }                        # ip auto-discovered
+# myapp2:  { node: pve1, port: 3000, auth: basic }           # ip auto-discovered + auth
+# legacy:  { node: pve2, port: 8080, ip: 192.168.0.20 }      # ip pinned (optional override)

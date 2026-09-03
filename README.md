@@ -124,7 +124,16 @@ config.sh                # -> 8) Basic auth hash
 
 ## Adding a Service
 
-Edit `/etc/pve-proxy/services.yaml`:
+Edit `/etc/pve-proxy/services.yaml`. Only the container name and service `port`
+are required — the container's IP is auto-discovered by the sync from the PVE API
+(`/nodes/{node}/lxc/{vmid}/interfaces`), which reports the live address even for
+DHCP containers:
+
+```yaml
+myapp: { node: pve1, port: 8080 }
+```
+
+Pin a specific IP only when you need to override discovery:
 
 ```yaml
 myapp: { node: pve1, ip: 10.0.0.30, port: 8080 }
@@ -139,7 +148,9 @@ If the service should require login, set `auth: basic` on its line and make sure
 without a hash are rendered **without** auth and log a warning, so a missing hash
 can never break a sync.
 
-> **Note:** The port map is manual. The PVE API provides container names/IPs but not which port a service listens on.
+> **Note:** The service `port` is the one value PVE can't tell you and must always
+> be set by hand. The container IP is resolved automatically from the PVE API
+> whenever you omit `ip:`.
 
 ## Update
 
